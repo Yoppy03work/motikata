@@ -1,5 +1,9 @@
-// 千葉工業大学 学生資料室の学年歴 PDF を取りに行って AcademicEvent に流す。
-// dryRun=true でプレビュー、false で重複スキップしつつ DB に書き込む。
+// 千葉工業大学 学生資料室の学年歴 PDF を取りに行って AcademicEvent + ClassDay に流す。
+// 仕様:
+//   - パース結果は全部使って ClassDay を計算 (学期境界 + 休講 + 祝日授業日)
+//   - AcademicEvent には「文化の祭典」と「津田沼祭」を含むイベントだけ persist
+//     (履修登録期間や前期授業開始 などはノイズになるので残さない)
+//   - 学年度範囲の ClassDay は再インポート時に「全削除 → 入れ直し」で同期
 
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -7,6 +11,7 @@ import { prisma } from "@/lib/db";
 import { requireAuthApi } from "@/lib/authGuard";
 import { parseCitGakunenreki } from "@/lib/parseCitGakunenreki";
 import { SETTING_KEY_LAST_FETCH } from "@/lib/academicSettings";
+import { computeClassDaysFromEvents, replaceClassDays } from "@/lib/classDays";
 
 export const runtime = "nodejs";
 // PDF パースは pdfjs-dist の都合で Node ランタイム必須
@@ -20,22 +25,43 @@ const Body = z.object({
 
 const SOURCE_TAG = "cit-gakunenreki";
 
+// AcademicEvent として残すイベントのフィルタ。
+// 「行事として通知に出てきてほしいもの」だけに絞る。
+const KEEP_EXACT = new Set(["文化の祭典"]);
+const KEEP_KEYWORDS = ["津田沼祭"];
+
+function shouldKeepAsAcademicEvent(title: string): boolean {
+  if (KEEP_EXACT.has(title)) return true;
+  if (KEEP_KEYWORDS.some((k) => title.includes(k))) return true;
+  return false;
+}
+
 async function recordLastFetch(
   academicYear: number,
   inserted: number,
   skipped: number,
+  classDayCount: number,
 ): Promise<void> {
   const value = {
     ts: new Date().toISOString(),
     academicYear,
     inserted,
     skipped,
+    classDayCount,
   };
   await prisma.setting.upsert({
     where: { key: SETTING_KEY_LAST_FETCH },
     create: { key: SETTING_KEY_LAST_FETCH, value },
     update: { value },
   });
+}
+
+// 学年度 X = X 年 4/1 0:00 JST 〜 (X+1) 年 4/1 0:00 JST 未満
+// JST 4/1 0:00 = UTC (X) 年 3/31 15:00
+function academicYearRange(ay: number): { start: Date; end: Date } {
+  const start = new Date(Date.UTC(ay, 2, 31, 15, 0, 0));
+  const end = new Date(Date.UTC(ay + 1, 2, 31, 15, 0, 0) - 1);
+  return { start, end };
 }
 
 export async function POST(req: Request) {
@@ -63,66 +89,72 @@ export async function POST(req: Request) {
   }
   const { academicYear, events } = result;
 
+  // フィルタ後のイベントだけプレビューに出す(ユーザに見せるのは保持対象のみ)
+  const keepEvents = events.filter((e) => shouldKeepAsAcademicEvent(e.title));
+  const classDays = computeClassDaysFromEvents(events);
+
   if (parsed.data.dryRun) {
     return NextResponse.json({
       ok: true,
       academicYear,
-      preview: events.map((e) => ({
+      preview: keepEvents.map((e) => ({
         title: e.title,
         date: e.date.toISOString(),
         kind: e.kind,
       })),
-      count: events.length,
+      count: keepEvents.length,
+      classDayCount: classDays.length,
     });
   }
 
-  if (events.length === 0) {
-    return NextResponse.json({
-      ok: true,
-      academicYear,
-      inserted: 0,
-      skipped: 0,
+  // 1) AcademicEvent: 重複チェックして fresh だけ insert
+  let insertedEvents = 0;
+  let skippedEvents = 0;
+  if (keepEvents.length > 0) {
+    const minDate = keepEvents.reduce(
+      (m, e) => (e.date < m ? e.date : m),
+      keepEvents[0].date,
+    );
+    const maxDate = keepEvents.reduce(
+      (m, e) => (e.date > m ? e.date : m),
+      keepEvents[0].date,
+    );
+    const existing = await prisma.academicEvent.findMany({
+      where: { date: { gte: minDate, lte: maxDate } },
+      select: { date: true, title: true },
     });
+    const existingKey = new Set(
+      existing.map((e) => `${e.date.toISOString()}|${e.title}`),
+    );
+    const fresh = keepEvents.filter(
+      (e) => !existingKey.has(`${e.date.toISOString()}|${e.title}`),
+    );
+    if (fresh.length > 0) {
+      await prisma.academicEvent.createMany({
+        data: fresh.map((e) => ({
+          title: e.title,
+          date: e.date,
+          kind: e.kind,
+          importedFrom: SOURCE_TAG,
+        })),
+      });
+    }
+    insertedEvents = fresh.length;
+    skippedEvents = keepEvents.length - fresh.length;
   }
 
-  const minDate = events.reduce((m, e) => (e.date < m ? e.date : m), events[0].date);
-  const maxDate = events.reduce((m, e) => (e.date > m ? e.date : m), events[0].date);
-  const existing = await prisma.academicEvent.findMany({
-    where: { date: { gte: minDate, lte: maxDate } },
-    select: { date: true, title: true },
-  });
-  const existingKey = new Set(
-    existing.map((e) => `${e.date.toISOString()}|${e.title}`),
-  );
+  // 2) ClassDay: 学年度の範囲を一旦全削除して入れ直し(内容が一意になるよう同期)
+  const { start, end } = academicYearRange(academicYear);
+  const cd = await replaceClassDays(start, end, classDays);
 
-  const fresh = events.filter(
-    (e) => !existingKey.has(`${e.date.toISOString()}|${e.title}`),
-  );
-
-  if (fresh.length === 0) {
-    await recordLastFetch(academicYear, 0, events.length);
-    return NextResponse.json({
-      ok: true,
-      academicYear,
-      inserted: 0,
-      skipped: events.length,
-    });
-  }
-
-  await prisma.academicEvent.createMany({
-    data: fresh.map((e) => ({
-      title: e.title,
-      date: e.date,
-      kind: e.kind,
-      importedFrom: SOURCE_TAG,
-    })),
-  });
-  await recordLastFetch(academicYear, fresh.length, events.length - fresh.length);
+  await recordLastFetch(academicYear, insertedEvents, skippedEvents, cd.inserted);
 
   return NextResponse.json({
     ok: true,
     academicYear,
-    inserted: fresh.length,
-    skipped: events.length - fresh.length,
+    inserted: insertedEvents,
+    skipped: skippedEvents,
+    classDayInserted: cd.inserted,
+    classDayDeleted: cd.deleted,
   });
 }

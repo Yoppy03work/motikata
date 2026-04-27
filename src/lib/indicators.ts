@@ -1,5 +1,5 @@
 import { prisma } from "./db";
-import { computeClassDayMap } from "./classDays";
+import { getClassDayMap } from "./classDays";
 import type { DayIndicators } from "@/components/MonthCalendar";
 
 export async function getMonthlyIndicators(
@@ -14,7 +14,7 @@ export async function getMonthlyIndicators(
       where: { dueAt: { gte: from, lte: to } },
       select: { dueAt: true, itemType: true, required: true, status: true },
     }),
-    computeClassDayMap(fromYmd, toYmd),
+    getClassDayMap(fromYmd, toYmd),
   ]);
 
   const map: Record<string, DayIndicators> = {};

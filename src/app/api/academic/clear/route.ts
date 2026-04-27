@@ -26,9 +26,15 @@ export async function POST(req: Request) {
   const from = new Date(Date.UTC(ay, 2, 31, 15, 0, 0)); // X 年 3月31日 15:00 UTC = 4月1日 JST
   const to = new Date(Date.UTC(ay + 1, 2, 31, 15, 0, 0));
 
-  const result = await prisma.academicEvent.deleteMany({
-    where: { date: { gte: from, lt: to } },
-  });
+  const [eventDel, classDayDel] = await prisma.$transaction([
+    prisma.academicEvent.deleteMany({ where: { date: { gte: from, lt: to } } }),
+    prisma.classDay.deleteMany({ where: { date: { gte: from, lt: to } } }),
+  ]);
 
-  return NextResponse.json({ ok: true, deleted: result.count, academicYear: ay });
+  return NextResponse.json({
+    ok: true,
+    academicYear: ay,
+    deleted: eventDel.count,
+    classDaysDeleted: classDayDel.count,
+  });
 }

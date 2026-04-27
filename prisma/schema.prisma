@@ -225,6 +225,15 @@ model AcademicEvent {
   @@index([date])
 }
 
+// 「この日は授業がある」を年単位で永続化するテーブル。
+// 千葉工大の学年歴 PDF 取り込み時に、学期境界 + 休講 + 祝日授業日 から
+// 計算してまとめて bulk insert する。
+// date は JST 0:00 を表す UTC instant(他テーブルの慣習に合わせる)。
+model ClassDay {
+  date      DateTime @id
+  createdAt DateTime @default(now())
+}
+
 model PushSubscription {
   id        Int      @id @default(autoincrement())
   endpoint  String   @unique

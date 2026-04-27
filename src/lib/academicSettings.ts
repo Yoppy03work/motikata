@@ -7,4 +7,5 @@ export type CitLastFetch = {
   academicYear: number;
   inserted: number;
   skipped: number;
+  classDayCount?: number;
 };

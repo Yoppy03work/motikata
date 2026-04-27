@@ -14,13 +14,18 @@ type Preview = {
   kind: "EXAM" | "HOLIDAY" | "EVENT";
 };
 
-type YearStat = { academicYear: number; count: number };
+type YearStat = {
+  academicYear: number;
+  count: number;
+  classDayCount: number;
+};
 
 type LastFetch = {
   ts: string;
   academicYear: number;
   inserted: number;
   skipped: number;
+  classDayCount?: number;
 };
 
 type Status = {
@@ -198,7 +203,9 @@ export function AcademicImport() {
                 >
                   <span className="text-slate-700 dark:text-slate-300">
                     <span className="tabular-nums">{y.academicYear}</span>年度{" "}
-                    <span className="ml-1 text-slate-500">{y.count} 件</span>
+                    <span className="ml-1 text-slate-500">
+                      行事 {y.count} / 授業日 {y.classDayCount}
+                    </span>
                   </span>
                   <button
                     type="button"

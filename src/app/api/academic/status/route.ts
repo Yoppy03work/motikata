@@ -18,29 +18,40 @@ export async function GET() {
   if (guard) return guard;
 
   // 学年度ごとに件数を数える(date を JS 側で academicYearOf に通す)
-  const all = await prisma.academicEvent.findMany({
-    select: { date: true, importedFrom: true },
-  });
-  const byYear = new Map<number, number>();
-  let citCount = 0;
+  const [all, classDays, setting] = await Promise.all([
+    prisma.academicEvent.findMany({
+      select: { date: true, importedFrom: true },
+    }),
+    prisma.classDay.findMany({ select: { date: true } }),
+    prisma.setting.findUnique({ where: { key: SETTING_KEY_LAST_FETCH } }),
+  ]);
+  const byYear = new Map<number, { events: number; classDays: number }>();
   for (const e of all) {
     const y = academicYearOf(e.date);
-    byYear.set(y, (byYear.get(y) ?? 0) + 1);
-    if (e.importedFrom === "cit-gakunenreki") citCount++;
+    const v = byYear.get(y) ?? { events: 0, classDays: 0 };
+    v.events += 1;
+    byYear.set(y, v);
+  }
+  for (const c of classDays) {
+    const y = academicYearOf(c.date);
+    const v = byYear.get(y) ?? { events: 0, classDays: 0 };
+    v.classDays += 1;
+    byYear.set(y, v);
   }
   const yearsSorted = [...byYear.entries()]
     .sort(([a], [b]) => a - b)
-    .map(([year, count]) => ({ academicYear: year, count }));
+    .map(([year, counts]) => ({
+      academicYear: year,
+      count: counts.events,
+      classDayCount: counts.classDays,
+    }));
 
-  const setting = await prisma.setting.findUnique({
-    where: { key: SETTING_KEY_LAST_FETCH },
-  });
   const lastCitFetch = setting?.value as CitLastFetch | null | undefined;
 
   return NextResponse.json({
     ok: true,
     total: all.length,
-    citTotal: citCount,
+    classDayTotal: classDays.length,
     byYear: yearsSorted,
     lastCitFetch: lastCitFetch ?? null,
   });
