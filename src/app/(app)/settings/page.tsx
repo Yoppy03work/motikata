@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { PREF_SWIPE_NAV, readBoolPref, writeBoolPref } from "@/lib/prefs";
 import { applyTheme, readTheme, writeTheme, type ThemeMode } from "@/lib/theme";
+import { AcademicImport } from "./AcademicImport";
 
 const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
   { value: "system", label: "自動" },
@@ -130,7 +131,7 @@ export default function SettingsPage() {
 
         <div className="rounded-xl border border-slate-200 bg-slate-100 p-4 dark:border-slate-800 dark:bg-slate-900">
           <h2 className="mb-2 text-sm font-medium text-slate-700 dark:text-slate-300">学事暦</h2>
-          <p className="text-xs text-slate-500">CSV/ICS インポートは Phase 1 で実装予定</p>
+          <AcademicImport />
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-slate-100 p-4 dark:border-slate-800 dark:bg-slate-900">
