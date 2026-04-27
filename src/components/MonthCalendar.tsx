@@ -18,6 +18,7 @@ export type DayIndicators = {
   events?: number;
   required?: number;
   optional?: number;
+  isClassDay?: boolean;
 };
 
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
@@ -100,7 +101,11 @@ export function MonthCalendar({
             <button
               key={ymd}
               onClick={() => onSelect(ymd)}
-              className={`relative min-h-[3.25rem] bg-white dark:bg-slate-950 px-1 py-1 text-left transition ${
+              className={`relative min-h-[3.25rem] px-1 py-1 text-left transition ${
+                ind?.isClassDay
+                  ? "bg-sky-100 dark:bg-sky-500/15"
+                  : "bg-white dark:bg-slate-950"
+              } ${
                 isSelected
                   ? "ring-2 ring-sky-500 ring-inset"
                   : isToday
@@ -140,6 +145,10 @@ export function MonthCalendar({
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600 dark:text-slate-400">
+        <span className="inline-flex items-center gap-1">
+          <span className="inline-block h-3 w-3 rounded-sm bg-sky-100 dark:bg-sky-500/15" />
+          授業日
+        </span>
         <Legend color="bg-sky-400" label="予定" />
         <Legend color="bg-slate-200" label="必須" />
         <Legend color="bg-slate-500" label="任意" />

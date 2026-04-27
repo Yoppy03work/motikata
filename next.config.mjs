@@ -9,6 +9,10 @@ const securityHeaders = [
 
 const nextConfig = {
   reactStrictMode: true,
+  // pdfjs-dist は Node ESM で globalThis に副作用を入れる作りで、
+  // RSC バンドルに巻き込むと "Object.defineProperty called on non-object" で
+  // 初期化が壊れる。Server External Package として外す。
+  serverExternalPackages: ["pdfjs-dist"],
   experimental: {
     serverActions: { bodySizeLimit: "2mb" },
   },

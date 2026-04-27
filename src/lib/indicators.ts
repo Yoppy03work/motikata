@@ -1,4 +1,5 @@
 import { prisma } from "./db";
+import { computeClassDayMap } from "./classDays";
 import type { DayIndicators } from "@/components/MonthCalendar";
 
 export async function getMonthlyIndicators(
@@ -8,12 +9,16 @@ export async function getMonthlyIndicators(
   const from = new Date(fromYmd + "T00:00:00+09:00");
   const to = new Date(toYmd + "T23:59:59+09:00");
 
-  const rows = await prisma.taskInstance.findMany({
-    where: { dueAt: { gte: from, lte: to } },
-    select: { dueAt: true, itemType: true, required: true, status: true },
-  });
+  const [rows, classDayMap] = await Promise.all([
+    prisma.taskInstance.findMany({
+      where: { dueAt: { gte: from, lte: to } },
+      select: { dueAt: true, itemType: true, required: true, status: true },
+    }),
+    computeClassDayMap(fromYmd, toYmd),
+  ]);
 
   const map: Record<string, DayIndicators> = {};
+  // タスクの集計
   for (const r of rows) {
     if (r.status === "DONE") continue;
     // Asia/Tokyo日に丸める
@@ -23,6 +28,12 @@ export async function getMonthlyIndicators(
     if (r.itemType === "EVENT") bucket.events = (bucket.events ?? 0) + 1;
     else if (r.required) bucket.required = (bucket.required ?? 0) + 1;
     else bucket.optional = (bucket.optional ?? 0) + 1;
+  }
+  // 授業日フラグを混ぜる(タスクが無い日にも色を付けたいので、map にエントリを作る)
+  for (const [ymd, isClass] of Object.entries(classDayMap)) {
+    if (!isClass) continue;
+    const bucket = (map[ymd] ||= { events: 0, required: 0, optional: 0 });
+    bucket.isClassDay = true;
   }
   return map;
 }
