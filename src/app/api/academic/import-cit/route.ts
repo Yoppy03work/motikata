@@ -6,6 +6,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireAuthApi } from "@/lib/authGuard";
 import { parseCitGakunenreki } from "@/lib/parseCitGakunenreki";
+import { SETTING_KEY_LAST_FETCH } from "@/lib/academicSettings";
 
 export const runtime = "nodejs";
 // PDF パースは pdfjs-dist の都合で Node ランタイム必須
@@ -18,6 +19,24 @@ const Body = z.object({
 });
 
 const SOURCE_TAG = "cit-gakunenreki";
+
+async function recordLastFetch(
+  academicYear: number,
+  inserted: number,
+  skipped: number,
+): Promise<void> {
+  const value = {
+    ts: new Date().toISOString(),
+    academicYear,
+    inserted,
+    skipped,
+  };
+  await prisma.setting.upsert({
+    where: { key: SETTING_KEY_LAST_FETCH },
+    create: { key: SETTING_KEY_LAST_FETCH, value },
+    update: { value },
+  });
+}
 
 export async function POST(req: Request) {
   const guard = await requireAuthApi();
@@ -81,6 +100,7 @@ export async function POST(req: Request) {
   );
 
   if (fresh.length === 0) {
+    await recordLastFetch(academicYear, 0, events.length);
     return NextResponse.json({
       ok: true,
       academicYear,
@@ -97,6 +117,7 @@ export async function POST(req: Request) {
       importedFrom: SOURCE_TAG,
     })),
   });
+  await recordLastFetch(academicYear, fresh.length, events.length - fresh.length);
 
   return NextResponse.json({
     ok: true,
