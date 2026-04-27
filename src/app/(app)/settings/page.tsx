@@ -120,7 +120,12 @@ export default function SettingsPage() {
 
         <div className="rounded-xl border border-slate-200 bg-slate-100 p-4 dark:border-slate-800 dark:bg-slate-900">
           <h2 className="mb-2 text-sm font-medium text-slate-700 dark:text-slate-300">通知</h2>
-          <p className="text-xs text-slate-500">Slack Webhook / Web Push は Phase 1 で実装予定</p>
+          <p className="text-xs text-slate-500">
+            Slack:{" "}
+            <code>.env</code> の <code>SLACK_WEBHOOK_URL</code> を設定すると、
+            タスクに登録したリマインダー(SLACK チャネル)が毎分の cron で配信されます。
+          </p>
+          <p className="mt-1 text-xs text-slate-500">Web Push は Phase 2 で実装予定</p>
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-slate-100 p-4 dark:border-slate-800 dark:bg-slate-900">
