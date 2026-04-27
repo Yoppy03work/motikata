@@ -2,10 +2,12 @@
 
 import { useMemo, useState } from "react";
 import {
+  addDays,
   addMonths,
   endOfMonth,
   endOfWeek,
   format,
+  isAfter,
   isSameMonth,
   startOfMonth,
   startOfWeek,
@@ -44,9 +46,11 @@ export function MonthCalendar({
   const monthCells = useMemo(() => {
     const start = startOfWeek(startOfMonth(cursor), { weekStartsOn: 0 });
     const end = endOfWeek(endOfMonth(cursor), { weekStartsOn: 0 });
+    // 24時間固定のミリ秒加算は DST 切替を跨ぐと日付が重複/欠落するため、
+    // カレンダー日単位の addDays を使う(date-fns は DST 認識)。
     const cells: Date[] = [];
-    for (let d = start; d <= end; d = new Date(d.getTime() + 86400000)) {
-      cells.push(new Date(d));
+    for (let d = start; !isAfter(d, end); d = addDays(d, 1)) {
+      cells.push(d);
     }
     return cells;
   }, [cursor]);
