@@ -1,0 +1,270 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model AppUser {
+  id        Int      @id @default(autoincrement())
+  pinHash   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Tag {
+  id        Int              @id @default(autoincrement())
+  name      String           @unique
+  color     String?
+  templates TemplateTag[]
+  classes   ClassTag[]
+  instances TaskInstanceTag[]
+  createdAt DateTime         @default(now())
+}
+
+enum TemplateKind {
+  MANUAL
+  RECURRING
+  CLASS
+}
+
+enum TaskStatus {
+  OPEN
+  DONE
+  SKIPPED
+}
+
+enum TaskPriority {
+  LOW
+  MID
+  HIGH
+}
+
+enum TaskSource {
+  MANUAL
+  RECURRING
+  CLASS
+  ACADEMIC
+}
+
+enum ReminderChannel {
+  SLACK
+  PUSH
+}
+
+enum ReminderStatus {
+  PENDING
+  SENT
+  SKIPPED
+  ACKED
+  FAILED
+}
+
+enum AcademicKind {
+  EXAM
+  HOLIDAY
+  EVENT
+}
+
+enum ChecklistOwnerType {
+  TEMPLATE
+  CLASS
+}
+
+enum NoteKind {
+  INBOX  // あとでタスクに昇格できる思いつき置き場
+  DIARY  // 日付に紐付いた日次メモ
+}
+
+enum ItemType {
+  TASK   // やること(チェックして消す)
+  EVENT  // 予定(時間拘束・事実。授業等)
+}
+
+model TaskTemplate {
+  id                  Int            @id @default(autoincrement())
+  kind                TemplateKind
+  itemType            ItemType       @default(TASK)
+  required            Boolean        @default(true)
+  title               String
+  notes               String?
+  priority            TaskPriority   @default(MID)
+  defaultDueOffsetMin Int            @default(0)
+  rrule               String?
+  classScheduleId     Int?
+  classSchedule       ClassSchedule? @relation(fields: [classScheduleId], references: [id], onDelete: Cascade)
+  tags                TemplateTag[]
+  instances           TaskInstance[]
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+}
+
+model TemplateTag {
+  templateId Int
+  tagId      Int
+  template   TaskTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  tag        Tag          @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([templateId, tagId])
+}
+
+model ClassSchedule {
+  id            Int            @id @default(autoincrement())
+  dayOfWeek     Int
+  period        Int
+  startTime     String
+  endTime       String
+  courseName    String
+  classroom     String?
+  teacher       String?
+  effectiveFrom DateTime?
+  effectiveTo   DateTime?
+  tags          ClassTag[]
+  templates     TaskTemplate[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([dayOfWeek, period])
+}
+
+model ClassTag {
+  classId Int
+  tagId   Int
+  class   ClassSchedule @relation(fields: [classId], references: [id], onDelete: Cascade)
+  tag     Tag           @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([classId, tagId])
+}
+
+model ChecklistTemplate {
+  id        Int                @id @default(autoincrement())
+  ownerType ChecklistOwnerType
+  ownerId   Int
+  label     String
+  orderIdx  Int                @default(0)
+  createdAt DateTime           @default(now())
+
+  @@index([ownerType, ownerId])
+}
+
+model TaskInstance {
+  id               Int                 @id @default(autoincrement())
+  templateId       Int?
+  template         TaskTemplate?       @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  title            String
+  notes            String?
+  dueAt            DateTime
+  itemType         ItemType            @default(TASK)
+  required         Boolean             @default(true)
+  priority         TaskPriority        @default(MID)
+  status           TaskStatus          @default(OPEN)
+  completedAt      DateTime?
+  source           TaskSource
+  sourceExternalId String?
+  tags             TaskInstanceTag[]
+  checklist        TaskInstanceCheck[]
+  reminders        Reminder[]
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  @@unique([templateId, dueAt], name: "unique_template_due")
+  @@index([status, dueAt])
+}
+
+model TaskInstanceTag {
+  instanceId Int
+  tagId      Int
+  instance   TaskInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  tag        Tag          @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([instanceId, tagId])
+}
+
+model TaskInstanceCheck {
+  id             Int          @id @default(autoincrement())
+  instanceId     Int
+  instance       TaskInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  label          String
+  orderIdx       Int          @default(0)
+  checkedAt      DateTime?
+  fromTemplateId Int?
+  createdAt      DateTime     @default(now())
+
+  @@index([instanceId, orderIdx])
+}
+
+model Reminder {
+  id              Int             @id @default(autoincrement())
+  instanceId      Int
+  instance        TaskInstance    @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  remindAt        DateTime
+  channel         ReminderChannel
+  escalationLevel Int             @default(0)
+  status          ReminderStatus  @default(PENDING)
+  sentAt          DateTime?
+  ackedAt         DateTime?
+  dedupeKey       String          @unique
+  attempts        Int             @default(0)
+  lastError       String?
+  createdAt       DateTime        @default(now())
+
+  @@unique([instanceId, remindAt, channel, escalationLevel], name: "unique_reminder")
+  @@index([status, remindAt])
+}
+
+model AcademicEvent {
+  id           Int          @id @default(autoincrement())
+  title        String
+  date         DateTime
+  kind         AcademicKind
+  importedFrom String?
+  createdAt    DateTime     @default(now())
+
+  @@index([date])
+}
+
+model PushSubscription {
+  id        Int      @id @default(autoincrement())
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+  createdAt DateTime @default(now())
+}
+
+model Setting {
+  key   String @id
+  value Json
+}
+
+// ログイン総当たり対策。プロセス内メモリではなく Postgres に永続化して
+// 再起動や複数プロセスでカウントが消えないようにする。
+model LoginAttempt {
+  key           String   @id
+  failures      Int      @default(0)
+  windowStart   DateTime @default(now())
+  lockoutUntil  DateTime?
+  updatedAt     DateTime @updatedAt
+}
+
+// ────────────────────────────────────────────────
+// メモ(ワーキングメモリ置き場)
+// INBOX: 未消化の思いつき。タスクに昇格できる
+// DIARY: 日付に紐付いた日記的メモ
+// 時系列ストリームは kind 横断で createdAt 逆順に表示
+// ────────────────────────────────────────────────
+model Note {
+  id             Int       @id @default(autoincrement())
+  body           String
+  kind           NoteKind  @default(INBOX)
+  diaryDate      DateTime? // DIARYのみ使用(日付のみ、時刻は00:00 JST)
+  archivedAt     DateTime? // 消化済み(INBOXのみ)
+  promotedTaskId Int?      // タスクに昇格した場合の参照
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([kind, archivedAt, createdAt])
+  @@index([diaryDate])
+}
