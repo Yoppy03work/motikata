@@ -1,4 +1,4 @@
-// 学事暦 ICS インポート。
+// 学年歴 ICS インポート。
 // 認証必須。Body は ICS テキスト全文(text/calendar or text/plain)。
 // 仕様:
 //   - VEVENT を抽出して AcademicEvent に bulk insert
@@ -12,7 +12,7 @@ import { requireAuthApi } from "@/lib/authGuard";
 import { parseIcs } from "@/lib/parseIcs";
 
 export const runtime = "nodejs";
-// Body 上限は CSP 経由で 2MB。学事暦 ICS は通常数十 KB なので十分。
+// Body 上限は CSP 経由で 2MB。学年歴 ICS は通常数十 KB なので十分。
 
 const Body = z.object({
   text: z.string().min(8).max(2_000_000),

@@ -130,7 +130,7 @@ export default function SettingsPage() {
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-slate-100 p-4 dark:border-slate-800 dark:bg-slate-900">
-          <h2 className="mb-2 text-sm font-medium text-slate-700 dark:text-slate-300">学事暦</h2>
+          <h2 className="mb-2 text-sm font-medium text-slate-700 dark:text-slate-300">学年歴</h2>
           <AcademicImport />
         </div>
 

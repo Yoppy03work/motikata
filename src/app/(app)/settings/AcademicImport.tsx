@@ -1,6 +1,6 @@
 "use client";
 
-// 学事暦 ICS のアップロード UI(設定画面に組み込み)。
+// 学年歴 ICS のアップロード UI(設定画面に組み込み)。
 // 流れ: ファイル選択 → ローカルで text 化 → /api/academic/import に POST
 // dryRun でプレビュー → 確認 → 本番 import の2段階。
 
