@@ -234,6 +234,19 @@ model ClassDay {
   createdAt DateTime @default(now())
 }
 
+// manaba 連携用の暗号化保存資格情報(単一ユーザー前提なので 1 行のみ)。
+// passwordEnc は AES-256-GCM。鍵は SESSION_SECRET 派生で暗号化(crypto.ts)。
+// lastError には直近の同期時のエラー(あれば)、lastSyncedAt は最終成功時刻。
+model ManabaCredential {
+  id            Int       @id @default(autoincrement())
+  username      String
+  passwordEnc   String
+  lastSyncedAt  DateTime?
+  lastError     String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
 model PushSubscription {
   id        Int      @id @default(autoincrement())
   endpoint  String   @unique
