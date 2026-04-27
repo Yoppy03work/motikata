@@ -1,0 +1,73 @@
+name: mochikata
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: mochikata-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      TZ: Asia/Tokyo
+    # ホスト公開はローカル開発用のみ(127.0.0.1 にバインドして外部から到達不可にする)。
+    # リモート/本番運用では POSTGRES_HOST_BIND を設定しないか、ここ全体をコメントアウト。
+    ports:
+      - "${POSTGRES_HOST_BIND:-127.0.0.1:5432}:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: web
+    container_name: mochikata-web
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      - SESSION_SECRET=${SESSION_SECRET}
+      - INITIAL_PIN=${INITIAL_PIN}
+      - JOBS_TOKEN=${JOBS_TOKEN}
+      - PUSH_HIDE_PAYLOAD=${PUSH_HIDE_PAYLOAD:-true}
+      - TRUST_PROXY=${TRUST_PROXY:-false}
+      - APP_ORIGIN=${APP_ORIGIN}
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL}
+      - VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY}
+      - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY}
+      - VAPID_SUBJECT=${VAPID_SUBJECT}
+      - TZ=Asia/Tokyo
+    ports:
+      - "3000:3000"
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: worker
+    container_name: mochikata-worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      - JOBS_TOKEN=${JOBS_TOKEN}
+      - PUSH_HIDE_PAYLOAD=${PUSH_HIDE_PAYLOAD:-true}
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL}
+      - VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY}
+      - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY}
+      - VAPID_SUBJECT=${VAPID_SUBJECT}
+      - WEB_URL=http://web:3000
+      - TZ=Asia/Tokyo
+
+volumes:
+  pg_data:
