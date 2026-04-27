@@ -9,13 +9,15 @@
 // 判定ルール:
 //   1. 学期境界(前期/後期 授業開始〜終了)内であること
 //   2. 日曜は授業日でない (土曜は CIT では授業日扱い)
-//   3. HOLIDAY 種別の AcademicEvent (休講) がある日は授業日でない
-//   4. 「祭典 / 詣行脚 / 津田沼祭」を含むイベントがある日は授業日でない
-//   5. ただし title === "祝日授業日" の日は上記を上書きして授業日
+//   3. HOLIDAY 種別の AcademicEvent (= title に "休講" や "休業" を含むもの)
+//      がある日は授業日でない
+//   4. ただし title === "祝日授業日" の日は上記を上書きして授業日
+//
+// 注意: 成田山詣行脚 / 文化の祭典 / 津田沼祭(休講と明示されない日) は
+// PDF 上では授業日扱い(行事は行うが授業も並行)。タイトルに "休講" が
+// 含まれる日のみを除外する。
 
 import { prisma } from "@/lib/db";
-
-const NON_CLASS_KEYWORDS = ["祭典", "詣行脚", "津田沼祭"];
 
 export type ClassDayInputEvent = {
   title: string;
@@ -39,10 +41,9 @@ export function computeClassDaysFromEvents(events: ClassDayInputEvent[]): Date[]
     else if (e.title.includes("後期授業終了")) secondSemester.end = e.date;
   }
 
-  // 日別に「休講か」「特別行事で潰れているか」「祝日授業日として強制 ON か」を集計
+  // 日別に「休講か」「祝日授業日として強制 ON か」を集計
   type DayInfo = {
     hasHoliday: boolean;
-    hasNonClassEvent: boolean;
     isExplicitClassDay: boolean;
   };
   const byYmd = new Map<string, DayInfo>();
@@ -50,11 +51,9 @@ export function computeClassDaysFromEvents(events: ClassDayInputEvent[]): Date[]
     const ymd = jstYmd(e.date);
     const info = byYmd.get(ymd) ?? {
       hasHoliday: false,
-      hasNonClassEvent: false,
       isExplicitClassDay: false,
     };
     if (e.kind === "HOLIDAY") info.hasHoliday = true;
-    if (NON_CLASS_KEYWORDS.some((k) => e.title.includes(k))) info.hasNonClassEvent = true;
     if (e.title === "祝日授業日") info.isExplicitClassDay = true;
     byYmd.set(ymd, info);
   }
@@ -76,7 +75,7 @@ export function computeClassDaysFromEvents(events: ClassDayInputEvent[]): Date[]
 
       const jstDow = new Date(d.getTime() + 9 * 60 * 60 * 1000).getUTCDay();
       if (jstDow === 0) continue; // 日曜
-      if (info?.hasHoliday || info?.hasNonClassEvent) continue;
+      if (info?.hasHoliday) continue;
 
       result.push(jstZero(d));
     }
