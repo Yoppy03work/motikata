@@ -1,8 +1,10 @@
 "use client";
 
-// 学年歴 ICS のアップロード UI(設定画面に組み込み)。
-// 流れ: ファイル選択 → ローカルで text 化 → /api/academic/import に POST
-// dryRun でプレビュー → 確認 → 本番 import の2段階。
+// 学年歴インポート UI(設定画面に組み込み)。
+// 2 つの取り込み方式:
+//   1. ICS ファイルアップロード(汎用)
+//   2. 千葉工業大学 学生資料室の学年歴 PDF を自動取得・パース(専用)
+// どちらも dryRun でプレビュー → 確認 → 本番 import の2段階。
 
 import { useState } from "react";
 
@@ -12,6 +14,8 @@ type Preview = {
   kind: "EXAM" | "HOLIDAY" | "EVENT";
 };
 
+type Mode = "ics" | "cit";
+
 const KIND_LABEL: Record<Preview["kind"], string> = {
   EXAM: "試験",
   HOLIDAY: "休日",
@@ -19,17 +23,21 @@ const KIND_LABEL: Record<Preview["kind"], string> = {
 };
 
 export function AcademicImport() {
-  const [text, setText] = useState<string>("");
+  const [mode, setMode] = useState<Mode | null>(null);
+  const [icsText, setIcsText] = useState<string>("");
   const [filename, setFilename] = useState<string>("");
   const [preview, setPreview] = useState<Preview[] | null>(null);
+  const [academicYear, setAcademicYear] = useState<number | null>(null);
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const reset = () => {
-    setText("");
+    setMode(null);
+    setIcsText("");
     setFilename("");
     setPreview(null);
+    setAcademicYear(null);
     setMessage(null);
     setError(null);
   };
@@ -44,9 +52,9 @@ export function AcademicImport() {
       return;
     }
     const t = await file.text();
-    setText(t);
+    setIcsText(t);
     setFilename(file.name);
-    // 即プレビュー
+    setMode("ics");
     setPending(true);
     try {
       const res = await fetch("/api/academic/import", {
@@ -65,25 +73,58 @@ export function AcademicImport() {
     }
   };
 
-  const onImport = async () => {
-    if (!text) return;
-    setPending(true);
+  const onCitPreview = async () => {
     setError(null);
+    setMessage(null);
+    setPreview(null);
+    setMode("cit");
+    setPending(true);
     try {
-      const res = await fetch("/api/academic/import", {
+      const res = await fetch("/api/academic/import-cit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, source: filename || "ics" }),
+        body: JSON.stringify({ dryRun: true }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(body.error ?? `インポート失敗 (${res.status})`);
+        setError(body.error ?? `取得失敗 (${res.status})`);
         return;
       }
-      setMessage(`インポート完了: 追加 ${body.inserted ?? 0} 件 / スキップ(重複)${body.skipped ?? 0} 件`);
-      setPreview(null);
-      setText("");
+      setPreview(body.preview ?? []);
+      if (typeof body.academicYear === "number") setAcademicYear(body.academicYear);
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const onImport = async () => {
+    if (!preview || !mode) return;
+    setPending(true);
+    setError(null);
+    try {
+      const url = mode === "cit" ? "/api/academic/import-cit" : "/api/academic/import";
+      const body =
+        mode === "cit"
+          ? {}
+          : { text: icsText, source: filename || "ics" };
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(json.error ?? `インポート失敗 (${res.status})`);
+        return;
+      }
+      setMessage(
+        `インポート完了: 追加 ${json.inserted ?? 0} 件 / スキップ(重複)${json.skipped ?? 0} 件`,
+      );
+      setMode(null);
+      setIcsText("");
       setFilename("");
+      setPreview(null);
+      setAcademicYear(null);
     } finally {
       setPending(false);
     }
@@ -92,22 +133,37 @@ export function AcademicImport() {
   return (
     <div>
       <p className="mb-2 text-xs text-slate-500">
-        Google Calendar / 大学公式の ICS ファイルをアップロードすると、試験・休講・予定として読み込みます。
+        試験・休講・大学行事を読み込みます。同日同タイトルは重複として自動スキップ。
       </p>
 
       {!preview && (
-        <label
-          className={`block cursor-pointer rounded-lg border border-dashed border-slate-400 dark:border-slate-600 bg-white dark:bg-slate-950 px-4 py-3 text-center text-sm transition ${pending ? "opacity-50" : "hover:border-sky-500"}`}
-        >
-          <input
-            type="file"
-            accept=".ics,text/calendar,text/plain"
-            className="hidden"
+        <div className="space-y-2">
+          <label
+            className={`block cursor-pointer rounded-lg border border-dashed border-slate-400 dark:border-slate-600 bg-white dark:bg-slate-950 px-4 py-3 text-center text-sm transition ${pending ? "opacity-50" : "hover:border-sky-500"}`}
+          >
+            <input
+              type="file"
+              accept=".ics,text/calendar,text/plain"
+              className="hidden"
+              disabled={pending}
+              onChange={(e) => void onFile(e.target.files?.[0])}
+            />
+            {pending && mode === "ics" ? "読み込み中..." : "ICS ファイルを選択"}
+          </label>
+          <button
+            type="button"
+            onClick={() => void onCitPreview()}
             disabled={pending}
-            onChange={(e) => void onFile(e.target.files?.[0])}
-          />
-          {pending ? "読み込み中..." : "ICS ファイルを選択"}
-        </label>
+            className="block w-full rounded-lg border border-sky-500/40 bg-sky-500/10 px-4 py-3 text-center text-sm font-medium text-sky-700 dark:text-sky-300 transition hover:bg-sky-500/20 disabled:opacity-50"
+          >
+            {pending && mode === "cit"
+              ? "取得中..."
+              : "🏫 千葉工大の学年歴を自動取得"}
+          </button>
+          <p className="text-[11px] text-slate-500">
+            学生資料室の PDF をパースします。①②(丸数字)エントリは取りこぼされます。
+          </p>
+        </div>
       )}
 
       {error && <p className="mt-2 text-xs text-rose-500">{error}</p>}
@@ -116,7 +172,8 @@ export function AcademicImport() {
       {preview && (
         <div className="mt-3">
           <p className="mb-2 text-xs text-slate-600 dark:text-slate-400">
-            {filename ? `${filename} — ` : ""}
+            {mode === "cit" && academicYear ? `${academicYear}年度 — ` : null}
+            {mode === "ics" && filename ? `${filename} — ` : null}
             {preview.length} 件のイベントが見つかりました
           </p>
           {preview.length > 0 ? (
@@ -153,13 +210,13 @@ export function AcademicImport() {
             </ul>
           ) : (
             <p className="mb-3 rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-2 text-xs text-slate-500">
-              VEVENT が見つかりませんでした
+              イベントが見つかりませんでした
             </p>
           )}
           <div className="flex gap-2">
             <button
               type="button"
-              onClick={onImport}
+              onClick={() => void onImport()}
               disabled={pending || preview.length === 0}
               className="flex-1 rounded-lg bg-sky-500 py-2 text-sm font-medium text-white disabled:opacity-50"
             >
