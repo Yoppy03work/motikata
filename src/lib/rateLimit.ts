@@ -67,15 +67,20 @@ export async function recordSuccess(key: string): Promise<void> {
   await prisma.loginAttempt.delete({ where: { key } }).catch(() => {});
 }
 
+export const ANON_COOKIE_NAME = "mochikata_anon_id";
+export const ANON_COOKIE_MAX_AGE = 60 * 60 * 24 * 365; // 1年
+
 /**
  * クライアント識別子を返す。
- * - TRUST_PROXY=true の場合のみ x-forwarded-for / x-real-ip を採用(リバースプロキシ前提)
- * - それ以外は IP + User-Agent のハッシュをキーにして、正規ユーザーの操作で
- *   別クライアントの攻撃者がロックアウトを引き起こしにくくする。
- *   ヘッダ偽装でキーを揺らしても、User-Agent を変えた試行は別キーに分かれるだけで
- *   全体の上限(DB行数)は増えるが個々の試行回数上限は保たれる。
+ * - TRUST_PROXY=true: 前段プロキシが付ける x-forwarded-for / x-real-ip + UA を採用
+ * - TRUST_PROXY=false: 長期 anon Cookie + UA を採用
+ *   (UA だけだと同 UA のユーザー全員が同じ bucket になり、攻撃者が無関係な
+ *   ユーザーをロックアウトできるため。Cookie はブラウザごとに独立)
+ *
+ * anonId は呼び出し側(login route)で Cookie から取得し、なければ生成して
+ * レスポンスにセットする。
  */
-export function clientKey(req: Request): string {
+export function clientKey(req: Request, anonId?: string): string {
   const trust = process.env.TRUST_PROXY === "true";
   const ua = req.headers.get("user-agent") ?? "";
   const uaHash = createHash("sha256").update(ua).digest("hex").slice(0, 16);
@@ -85,5 +90,8 @@ export function clientKey(req: Request): string {
     const ip = fwd ? fwd.split(",")[0].trim() : req.headers.get("x-real-ip");
     if (ip) return `ip:${ip}|ua:${uaHash}`;
   }
-  return `anon|ua:${uaHash}`;
+
+  if (anonId) return `anon:${anonId}|ua:${uaHash}`;
+  // Cookie 取得前(初回リクエスト)は UA のみ。次回以降は Cookie 経由で個別化される
+  return `ua-only:${uaHash}`;
 }

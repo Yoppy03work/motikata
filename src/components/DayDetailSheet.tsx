@@ -70,7 +70,10 @@ export function DayDetailSheet({
 
   if (!open) return null;
 
-  const dateObj = new Date(ymd + "T00:00:00+09:00");
+  // ymd は JST 文脈の "YYYY-MM-DD"。クライアント側の format で日付がずれないよう
+  // ローカル深夜の同 y/m/d を作る(format はその y/m/d をそのまま吐く)
+  const [yy, mm, dd] = ymd.split("-").map(Number);
+  const dateObj = new Date(yy, mm - 1, dd);
   const title = format(dateObj, "M月d日 (EEE)", { locale: ja });
 
   const events = items

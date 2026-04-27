@@ -34,8 +34,10 @@ export function MonthCalendar({
   className?: string;
 }) {
   const initialMonth = useMemo(() => {
-    const d = new Date(selectedYmd + "T00:00:00+09:00");
-    return new Date(d.getFullYear(), d.getMonth(), 1);
+    // selectedYmd は JST 文脈の "YYYY-MM-DD"。Date 経由で +09:00 を介すと
+    // 非 JST クライアントで月がずれるため、文字列から直接 y/m を抽出する。
+    const [y, m] = selectedYmd.split("-").map(Number);
+    return new Date(y, m - 1, 1);
   }, [selectedYmd]);
   const [cursor, setCursor] = useState<Date>(initialMonth);
 

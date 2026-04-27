@@ -13,14 +13,26 @@ import type { DayIndicators } from "@/components/MonthCalendar";
 // 端のチップをタップすると新しい選択日が中央に寄せられ、そこから更に前後1ヶ月が見える。
 const STRIP_HALF = 30;
 
-function parseYmd(s: string): Date {
-  return new Date(`${s}T00:00:00+09:00`);
+// ymd ("YYYY-MM-DD") は「JST における日付」の文字列。
+// 表示用 Date はローカル深夜の同 y/m/d を作る(format が JST 文脈の y/m/d を
+// そのまま吐けるよう、TZ オフセットを介さない構造にする)。
+function ymdToLocalDate(ymd: string): Date {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(y, m - 1, d);
 }
 
+// 日付演算は文字列ベースで行う。Date を経由すると client の TZ で前日に
+// シフトすることがあるため(例: UTC 環境で +09:00 の Date を local 解釈すると
+// 日付がずれる)。
 function addDays(ymd: string, n: number): string {
-  const d = parseYmd(ymd);
-  d.setDate(d.getDate() + n);
-  return format(d, "yyyy-MM-dd");
+  const [y, m, d] = ymd.split("-").map(Number);
+  // UTC で計算してから UTC で取り出すことで、ホストの TZ に左右されない
+  const utc = new Date(Date.UTC(y, m - 1, d));
+  utc.setUTCDate(utc.getUTCDate() + n);
+  const yy = utc.getUTCFullYear();
+  const mm = String(utc.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(utc.getUTCDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
 }
 
 export function DateNav({
@@ -110,7 +122,7 @@ export function DateNav({
       >
         <div className="flex min-w-max gap-1.5">
           {strip.map((ymd) => {
-            const d = parseYmd(ymd);
+            const d = ymdToLocalDate(ymd);
             const isView = ymd === viewYmd;
             const isCurrent = ymd === todayYmd;
             return (
