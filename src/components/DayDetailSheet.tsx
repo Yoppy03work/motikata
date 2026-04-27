@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { format } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
 import { ja } from "date-fns/locale/ja";
 import Link from "next/link";
+import { APP_TZ } from "@/lib/tz";
 import { TaskForm } from "./TaskForm";
 
 type Instance = {
@@ -180,7 +182,7 @@ function Group({
           >
             <div className="flex items-center gap-2">
               <span className="text-xs text-slate-600 dark:text-slate-400">
-                {format(new Date(it.dueAt), "HH:mm")}
+                {formatInTimeZone(new Date(it.dueAt), APP_TZ, "HH:mm")}
               </span>
               <span className="truncate text-sm">{it.title}</span>
               {it.itemType === "TASK" && !it.required && (

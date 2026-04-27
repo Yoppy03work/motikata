@@ -2,7 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { format } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
+import { APP_TZ } from "@/lib/tz";
 import type { TodayItem } from "./types";
 
 const priorityLabel: Record<TodayItem["priority"], string> = {
@@ -107,7 +108,7 @@ export function TodayItemCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-sm text-slate-600 dark:text-slate-400">{format(due, "HH:mm")}</span>
+            <span className="text-sm text-slate-600 dark:text-slate-400">{formatInTimeZone(due, APP_TZ, "HH:mm")}</span>
             <span
               className={`rounded-md px-1.5 py-0.5 text-[10px] font-medium ${
                 isEvent

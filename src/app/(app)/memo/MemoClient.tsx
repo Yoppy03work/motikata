@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
-import { format } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
 import { ja } from "date-fns/locale/ja";
+import { APP_TZ } from "@/lib/tz";
 
 type Tab = "inbox" | "diary" | "stream";
 
@@ -32,8 +33,9 @@ export function MemoClient() {
   const [includeArchived, setIncludeArchived] = useState(false);
 
   const todayStr = useMemo(() => {
-    const d = new Date();
-    return format(d, "yyyy-MM-dd");
+    // 「今日」はアプリ全体で JST 基準。クライアントの local TZ に左右されないよう
+    // 明示的に JST で日付化する。
+    return formatInTimeZone(new Date(), APP_TZ, "yyyy-MM-dd");
   }, []);
 
   const load = useCallback(async () => {
@@ -217,7 +219,7 @@ function NoteRow({
       </p>
       <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500">
         <span>
-          {format(new Date(note.createdAt), "M/d HH:mm", { locale: ja })}
+          {formatInTimeZone(new Date(note.createdAt), APP_TZ, "M/d HH:mm", { locale: ja })}
           {tab === "stream" && (
             <span className="ml-2 rounded bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5">
               {note.kind === "INBOX" ? "Inbox" : "日次"}

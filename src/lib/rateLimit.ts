@@ -2,11 +2,14 @@
 // 単一ユーザー前提のアプリなので書き込み頻度は小さく、DB 往復のオーバーヘッドは許容できる。
 
 import { createHash } from "node:crypto";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 
 const MAX_ATTEMPTS = 5;
 const LOCKOUT_MS = 15 * 60_000;
 const WINDOW_MS = 30 * 60_000;
+const WINDOW_SEC = WINDOW_MS / 1000;
+const LOCKOUT_SEC = LOCKOUT_MS / 1000;
 
 export async function checkLockout(key: string): Promise<{
   allowed: boolean;
@@ -31,36 +34,55 @@ export async function checkLockout(key: string): Promise<{
   return { allowed: true, remaining: Math.max(0, MAX_ATTEMPTS - row.failures) };
 }
 
+// 同一 key への並行 recordFailure を取りこぼさないため、INSERT ... ON CONFLICT
+// DO UPDATE で原子的にインクリメント+判定を行う。Postgres のロー単位ロックに
+// 任せることで、read-modify-write の race を排除する。
 export async function recordFailure(key: string): Promise<{
   lockedOut: boolean;
   retryAfterSec?: number;
   remaining: number;
 }> {
-  const now = new Date();
-  const existing = await prisma.loginAttempt.findUnique({ where: { key } });
+  const rows = await prisma.$queryRaw<
+    Array<{ failures: number; lockoutUntil: Date | null }>
+  >(Prisma.sql`
+    INSERT INTO "LoginAttempt" ("key", "failures", "windowStart", "lockoutUntil", "updatedAt")
+    VALUES (${key}, 1, NOW(), NULL, NOW())
+    ON CONFLICT ("key") DO UPDATE SET
+      "failures" = CASE
+        WHEN NOW() - "LoginAttempt"."windowStart" > make_interval(secs => ${WINDOW_SEC})
+          THEN 1
+        ELSE "LoginAttempt"."failures" + 1
+      END,
+      "windowStart" = CASE
+        WHEN NOW() - "LoginAttempt"."windowStart" > make_interval(secs => ${WINDOW_SEC})
+          THEN NOW()
+        ELSE "LoginAttempt"."windowStart"
+      END,
+      "lockoutUntil" = CASE
+        WHEN (
+          CASE
+            WHEN NOW() - "LoginAttempt"."windowStart" > make_interval(secs => ${WINDOW_SEC})
+              THEN 1
+            ELSE "LoginAttempt"."failures" + 1
+          END
+        ) >= ${MAX_ATTEMPTS}
+          THEN NOW() + make_interval(secs => ${LOCKOUT_SEC})
+        ELSE "LoginAttempt"."lockoutUntil"
+      END,
+      "updatedAt" = NOW()
+    RETURNING "failures", "lockoutUntil"
+  `);
 
-  const withinWindow =
-    existing && now.getTime() - existing.windowStart.getTime() < WINDOW_MS;
-
-  const nextFailures = (withinWindow ? existing!.failures : 0) + 1;
-  const lockedOut = nextFailures >= MAX_ATTEMPTS;
-  const lockoutUntil = lockedOut ? new Date(now.getTime() + LOCKOUT_MS) : null;
-  const windowStart = withinWindow ? existing!.windowStart : now;
-
-  await prisma.loginAttempt.upsert({
-    where: { key },
-    create: { key, failures: nextFailures, windowStart, lockoutUntil },
-    update: { failures: nextFailures, windowStart, lockoutUntil },
-  });
-
-  if (lockedOut) {
+  const row = rows[0];
+  const now = Date.now();
+  if (row.lockoutUntil && row.lockoutUntil.getTime() > now) {
     return {
       lockedOut: true,
-      retryAfterSec: Math.ceil(LOCKOUT_MS / 1000),
+      retryAfterSec: Math.ceil((row.lockoutUntil.getTime() - now) / 1000),
       remaining: 0,
     };
   }
-  return { lockedOut: false, remaining: MAX_ATTEMPTS - nextFailures };
+  return { lockedOut: false, remaining: Math.max(0, MAX_ATTEMPTS - row.failures) };
 }
 
 export async function recordSuccess(key: string): Promise<void> {
