@@ -148,7 +148,7 @@ export default async function TasksPage({
           aria-label="検索"
           className="shrink-0 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 text-xs text-slate-700 dark:text-slate-300"
         >
-          🔍 検索
+          検索
         </a>
       </header>
 
