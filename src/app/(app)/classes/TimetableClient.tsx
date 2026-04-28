@@ -48,6 +48,87 @@ type EditTarget = {
   existing: Item | null;
 };
 
+// 授業名から自動で割り当てるカード配色。
+// Tailwind が JIT で拾えるよう、すべて static な class 文字列で記述。
+type Palette = {
+  card: string; // bg + ring (light/dark)
+  accent: string; // 左アクセントバー
+  badge: string; // 限ラベル文字色
+  hover: string;
+};
+const PALETTES: Palette[] = [
+  {
+    card: "bg-sky-50 ring-sky-200 dark:bg-sky-500/10 dark:ring-sky-500/30",
+    accent: "bg-sky-500",
+    badge: "text-sky-700 dark:text-sky-300",
+    hover: "hover:bg-sky-100 dark:hover:bg-sky-500/20",
+  },
+  {
+    card: "bg-violet-50 ring-violet-200 dark:bg-violet-500/10 dark:ring-violet-500/30",
+    accent: "bg-violet-500",
+    badge: "text-violet-700 dark:text-violet-300",
+    hover: "hover:bg-violet-100 dark:hover:bg-violet-500/20",
+  },
+  {
+    card: "bg-emerald-50 ring-emerald-200 dark:bg-emerald-500/10 dark:ring-emerald-500/30",
+    accent: "bg-emerald-500",
+    badge: "text-emerald-700 dark:text-emerald-300",
+    hover: "hover:bg-emerald-100 dark:hover:bg-emerald-500/20",
+  },
+  {
+    card: "bg-amber-50 ring-amber-200 dark:bg-amber-500/10 dark:ring-amber-500/30",
+    accent: "bg-amber-500",
+    badge: "text-amber-700 dark:text-amber-300",
+    hover: "hover:bg-amber-100 dark:hover:bg-amber-500/20",
+  },
+  {
+    card: "bg-rose-50 ring-rose-200 dark:bg-rose-500/10 dark:ring-rose-500/30",
+    accent: "bg-rose-500",
+    badge: "text-rose-700 dark:text-rose-300",
+    hover: "hover:bg-rose-100 dark:hover:bg-rose-500/20",
+  },
+  {
+    card: "bg-pink-50 ring-pink-200 dark:bg-pink-500/10 dark:ring-pink-500/30",
+    accent: "bg-pink-500",
+    badge: "text-pink-700 dark:text-pink-300",
+    hover: "hover:bg-pink-100 dark:hover:bg-pink-500/20",
+  },
+  {
+    card: "bg-indigo-50 ring-indigo-200 dark:bg-indigo-500/10 dark:ring-indigo-500/30",
+    accent: "bg-indigo-500",
+    badge: "text-indigo-700 dark:text-indigo-300",
+    hover: "hover:bg-indigo-100 dark:hover:bg-indigo-500/20",
+  },
+  {
+    card: "bg-teal-50 ring-teal-200 dark:bg-teal-500/10 dark:ring-teal-500/30",
+    accent: "bg-teal-500",
+    badge: "text-teal-700 dark:text-teal-300",
+    hover: "hover:bg-teal-100 dark:hover:bg-teal-500/20",
+  },
+  {
+    card: "bg-orange-50 ring-orange-200 dark:bg-orange-500/10 dark:ring-orange-500/30",
+    accent: "bg-orange-500",
+    badge: "text-orange-700 dark:text-orange-300",
+    hover: "hover:bg-orange-100 dark:hover:bg-orange-500/20",
+  },
+  {
+    card: "bg-cyan-50 ring-cyan-200 dark:bg-cyan-500/10 dark:ring-cyan-500/30",
+    accent: "bg-cyan-500",
+    badge: "text-cyan-700 dark:text-cyan-300",
+    hover: "hover:bg-cyan-100 dark:hover:bg-cyan-500/20",
+  },
+];
+
+function paletteFor(courseName: string): Palette {
+  // FNV-1a 風の単純ハッシュで安定的に色を選ぶ
+  let h = 0x811c9dc5;
+  for (let i = 0; i < courseName.length; i++) {
+    h ^= courseName.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return PALETTES[Math.abs(h) % PALETTES.length];
+}
+
 type FormState = {
   courseName: string;
   classroom: string;
@@ -183,13 +264,14 @@ export function TimetableClient() {
                     const it = startCells.get(key);
                     const span = it ? Math.max(1, it.endPeriod - it.period + 1) : 1;
                     const isToday = d.value === todayDow;
+                    const palette = it ? paletteFor(it.courseName) : null;
                     return (
                       <td
                         key={d.value}
                         rowSpan={span}
-                        className={`align-top p-0 ${
-                          isLastRow && span === 1 ? "" : "border-b border-slate-200 dark:border-slate-800"
-                        } ${isToday ? "bg-sky-50/30 dark:bg-sky-500/[0.04]" : ""}`}
+                        className={`p-1 align-top ${
+                          isToday ? "bg-sky-50/40 dark:bg-sky-500/[0.04]" : ""
+                        }`}
                       >
                         <button
                           type="button"
@@ -200,35 +282,48 @@ export function TimetableClient() {
                               existing: it ?? null,
                             })
                           }
-                          className={`block w-full text-left transition ${
-                            it
-                              ? "bg-sky-100/80 dark:bg-sky-500/15 hover:bg-sky-200 dark:hover:bg-sky-500/25 ring-1 ring-inset ring-sky-200 dark:ring-sky-500/30"
-                              : "border border-dashed border-transparent hover:border-slate-300 dark:hover:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-900"
+                          className={`relative flex h-full w-full overflow-hidden rounded-lg text-left transition active:scale-[0.98] ${
+                            it && palette
+                              ? `${palette.card} ${palette.hover} ring-1 ring-inset shadow-sm hover:shadow-md`
+                              : "border border-dashed border-slate-200 dark:border-slate-800 hover:border-sky-400 dark:hover:border-sky-500/50 hover:bg-sky-50/50 dark:hover:bg-sky-500/5"
                           }`}
-                          style={{ minHeight: `${span * 3.5}rem` }}
+                          style={{ minHeight: `${span * 3.75}rem` }}
                         >
-                          {it ? (
-                            <div className="flex h-full flex-col p-2">
-                              <div className="text-[10px] font-medium text-sky-700 dark:text-sky-300 tabular-nums">
-                                {it.period}
-                                {it.endPeriod !== it.period ? `-${it.endPeriod}` : ""}限
-                              </div>
-                              <div className="mt-1 line-clamp-2 text-sm font-semibold leading-snug text-slate-900 dark:text-slate-100">
-                                {it.courseName}
-                              </div>
-                              {it.classroom && (
-                                <div className="mt-auto pt-1 truncate text-[11px] text-slate-700 dark:text-slate-400">
-                                  📍 {it.classroom}
+                          {it && palette ? (
+                            <>
+                              {/* 左アクセントバー */}
+                              <span
+                                className={`absolute left-0 top-0 h-full w-1 ${palette.accent}`}
+                                aria-hidden
+                              />
+                              <div className="flex w-full flex-col gap-0.5 p-2 pl-2.5">
+                                <div className={`flex items-baseline gap-1 text-[10px] font-semibold tabular-nums ${palette.badge}`}>
+                                  <span>
+                                    {it.period}
+                                    {it.endPeriod !== it.period ? `-${it.endPeriod}` : ""}限
+                                  </span>
+                                  <span className="text-slate-400 dark:text-slate-500">·</span>
+                                  <span className="text-slate-500 dark:text-slate-400">
+                                    {it.startTime}
+                                  </span>
                                 </div>
-                              )}
-                              {it.teacher && (
-                                <div className="truncate text-[10px] text-slate-500">
-                                  {it.teacher}
+                                <div className="line-clamp-2 text-sm font-semibold leading-snug text-slate-900 dark:text-slate-100">
+                                  {it.courseName}
                                 </div>
-                              )}
-                            </div>
+                                {it.classroom && (
+                                  <div className="mt-auto truncate pt-1 text-[11px] text-slate-700 dark:text-slate-300">
+                                    📍 {it.classroom}
+                                  </div>
+                                )}
+                                {it.teacher && (
+                                  <div className="truncate text-[10px] text-slate-500 dark:text-slate-400">
+                                    {it.teacher}
+                                  </div>
+                                )}
+                              </div>
+                            </>
                           ) : (
-                            <div className="flex h-full items-center justify-center text-base text-slate-300 dark:text-slate-700">
+                            <div className="flex h-full w-full items-center justify-center text-base text-slate-300 dark:text-slate-700">
                               +
                             </div>
                           )}
