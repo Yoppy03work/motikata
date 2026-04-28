@@ -19,12 +19,12 @@ type Item = {
 };
 
 const DAYS = [
-  { value: 1, label: "月" },
-  { value: 2, label: "火" },
-  { value: 3, label: "水" },
-  { value: 4, label: "木" },
-  { value: 5, label: "金" },
-  { value: 6, label: "土" },
+  { value: 1, label: "月", full: "月曜" },
+  { value: 2, label: "火", full: "火曜" },
+  { value: 3, label: "水", full: "水曜" },
+  { value: 4, label: "木", full: "木曜" },
+  { value: 5, label: "金", full: "金曜" },
+  { value: 6, label: "土", full: "土曜" },
 ];
 
 // 1限〜10限の標準時刻(9:00-19:00 1時間刻み)
@@ -65,6 +65,13 @@ export function TimetableClient() {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // 今日の曜日(JST、月=1〜土=6 にマップ。日曜は 0 で対象外)
+  const todayDow = useMemo(() => {
+    const jst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+    const d = jst.getUTCDay(); // 0=日, 1=月, ..., 6=土
+    return d === 0 ? 0 : d;
+  }, []);
+
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
@@ -83,8 +90,6 @@ export function TimetableClient() {
   }, [refresh]);
 
   // (dayOfWeek, period) → Item の引き当て + 占有判定
-  // - startCells: そのセルが授業の開始セル(rowspan で出力する元)
-  // - occupied: そのセルがすでに別授業に占有されている(td 自体出力しない)
   const { startCells, occupied } = useMemo(() => {
     const startCells = new Map<string, Item>();
     const occupied = new Set<string>();
@@ -101,91 +106,139 @@ export function TimetableClient() {
 
   return (
     <div>
-      {error && <p className="mb-2 text-xs text-rose-500">{error}</p>}
-      <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-xs">
+      {error && (
+        <p className="mb-2 rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-600 dark:text-rose-300">
+          {error}
+        </p>
+      )}
+
+      {/* 凡例 */}
+      <div className="mb-2 flex items-center gap-3 text-[11px] text-slate-500">
+        <span className="inline-flex items-center gap-1">
+          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-sky-200 dark:bg-sky-500/30" />
+          授業
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span className="inline-block h-2.5 w-2.5 rounded-sm border border-dashed border-slate-400 dark:border-slate-600" />
+          空き(タップで追加)
+        </span>
+        {todayDow >= 1 && todayDow <= 6 && (
+          <span className="ml-auto text-sky-600 dark:text-sky-400">
+            ▼ 今日
+          </span>
+        )}
+      </div>
+
+      <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
+        <table className="w-full border-separate border-spacing-0 text-xs">
           <thead>
             <tr>
-              <th className="w-12 border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 p-1 text-slate-600 dark:text-slate-400">
-                /
+              <th className="sticky left-0 z-10 w-14 border-b border-r border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 p-1.5 text-[10px] font-medium text-slate-500">
+                時限
               </th>
-              {DAYS.map((d) => (
-                <th
-                  key={d.value}
-                  className="border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 p-1 text-slate-700 dark:text-slate-300"
-                >
-                  {d.label}
-                </th>
-              ))}
+              {DAYS.map((d) => {
+                const isToday = d.value === todayDow;
+                return (
+                  <th
+                    key={d.value}
+                    className={`border-b border-slate-200 dark:border-slate-800 p-2 text-sm font-semibold ${
+                      isToday
+                        ? "bg-sky-100/70 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300"
+                        : "bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300"
+                    }`}
+                  >
+                    <div className="flex items-center justify-center gap-1">
+                      {d.label}
+                      {isToday && (
+                        <span aria-hidden className="text-[10px]">
+                          ▼
+                        </span>
+                      )}
+                    </div>
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
-            {PERIODS.map((p) => (
-              <tr key={p.value}>
-                <th className="border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 p-1 text-center align-top text-slate-600 dark:text-slate-400">
-                  <div className="font-semibold">{p.value}</div>
-                  <div className="mt-0.5 text-[9px] text-slate-500 tabular-nums">
-                    {p.start}
-                  </div>
-                </th>
-                {DAYS.map((d) => {
-                  const key = `${d.value}/${p.value}`;
-                  if (occupied.has(key)) return null; // 上の行から rowspan で覆われている
-                  const it = startCells.get(key);
-                  const span = it ? Math.max(1, it.endPeriod - it.period + 1) : 1;
-                  return (
-                    <td
-                      key={d.value}
-                      rowSpan={span}
-                      className="border border-slate-200 dark:border-slate-700 align-top p-0"
-                    >
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setEditing({
-                            dayOfWeek: d.value,
-                            period: p.value,
-                            existing: it ?? null,
-                          })
-                        }
-                        className={`block w-full p-1.5 text-left transition ${
-                          it
-                            ? "bg-sky-100 dark:bg-sky-500/10 hover:bg-sky-200 dark:hover:bg-sky-500/20"
-                            : "hover:bg-slate-100 dark:hover:bg-slate-900"
-                        }`}
-                        style={{ minHeight: `${span * 3}rem` }}
+            {PERIODS.map((p, rowIdx) => {
+              const isLastRow = rowIdx === PERIODS.length - 1;
+              return (
+                <tr key={p.value}>
+                  <th
+                    className={`sticky left-0 z-10 bg-slate-50 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 p-1.5 text-center align-top ${
+                      isLastRow ? "" : "border-b"
+                    }`}
+                  >
+                    <div className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                      {p.value}
+                    </div>
+                    <div className="mt-0.5 text-[10px] text-slate-500 tabular-nums">
+                      {p.start}
+                    </div>
+                  </th>
+                  {DAYS.map((d) => {
+                    const key = `${d.value}/${p.value}`;
+                    if (occupied.has(key)) return null;
+                    const it = startCells.get(key);
+                    const span = it ? Math.max(1, it.endPeriod - it.period + 1) : 1;
+                    const isToday = d.value === todayDow;
+                    return (
+                      <td
+                        key={d.value}
+                        rowSpan={span}
+                        className={`align-top p-0 ${
+                          isLastRow && span === 1 ? "" : "border-b border-slate-200 dark:border-slate-800"
+                        } ${isToday ? "bg-sky-50/30 dark:bg-sky-500/[0.04]" : ""}`}
                       >
-                        {it ? (
-                          <>
-                            <div className="text-[10px] text-slate-500">
-                              {it.period}
-                              {it.endPeriod !== it.period ? `-${it.endPeriod}` : ""}限
-                            </div>
-                            <div className="mt-0.5 truncate text-[11px] font-medium text-slate-900 dark:text-slate-100">
-                              {it.courseName}
-                            </div>
-                            {it.classroom && (
-                              <div className="mt-0.5 truncate text-[10px] text-slate-600 dark:text-slate-400">
-                                📍 {it.classroom}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setEditing({
+                              dayOfWeek: d.value,
+                              period: p.value,
+                              existing: it ?? null,
+                            })
+                          }
+                          className={`block w-full text-left transition ${
+                            it
+                              ? "bg-sky-100/80 dark:bg-sky-500/15 hover:bg-sky-200 dark:hover:bg-sky-500/25 ring-1 ring-inset ring-sky-200 dark:ring-sky-500/30"
+                              : "border border-dashed border-transparent hover:border-slate-300 dark:hover:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-900"
+                          }`}
+                          style={{ minHeight: `${span * 3.5}rem` }}
+                        >
+                          {it ? (
+                            <div className="flex h-full flex-col p-2">
+                              <div className="text-[10px] font-medium text-sky-700 dark:text-sky-300 tabular-nums">
+                                {it.period}
+                                {it.endPeriod !== it.period ? `-${it.endPeriod}` : ""}限
                               </div>
-                            )}
-                            {it.teacher && (
-                              <div className="truncate text-[10px] text-slate-500">
-                                {it.teacher}
+                              <div className="mt-1 line-clamp-2 text-sm font-semibold leading-snug text-slate-900 dark:text-slate-100">
+                                {it.courseName}
                               </div>
-                            )}
-                          </>
-                        ) : (
-                          <span className="text-[10px] text-slate-400 dark:text-slate-600">
-                            +
-                          </span>
-                        )}
-                      </button>
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
+                              {it.classroom && (
+                                <div className="mt-auto pt-1 truncate text-[11px] text-slate-700 dark:text-slate-400">
+                                  📍 {it.classroom}
+                                </div>
+                              )}
+                              {it.teacher && (
+                                <div className="truncate text-[10px] text-slate-500">
+                                  {it.teacher}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="flex h-full items-center justify-center text-base text-slate-300 dark:text-slate-700">
+                              +
+                            </div>
+                          )}
+                        </button>
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -246,7 +299,6 @@ function EditModal({
   }, [target]);
   const [form, setForm] = useState<FormState>(initial);
 
-  // 開始/終了限が変わったら時刻も自動同期
   const update = (patch: Partial<FormState>) =>
     setForm((f) => {
       const next = { ...f, ...patch };
@@ -332,7 +384,7 @@ function EditModal({
       >
         <div className="mb-3 flex items-baseline justify-between">
           <h2 className="text-base font-semibold">
-            {day?.label}曜 {target.existing ? "編集" : "追加"}
+            {day?.full} {target.existing ? "編集" : "追加"}
           </h2>
           <button
             type="button"
@@ -342,7 +394,7 @@ function EditModal({
             閉じる
           </button>
         </div>
-        <div className="space-y-2">
+        <div className="space-y-3">
           <Field label="授業名" required>
             <input
               type="text"
@@ -402,9 +454,12 @@ function EditModal({
               className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-sky-500"
             />
           </Field>
-          <p className="text-[10px] text-slate-500">
-            時刻: <span className="tabular-nums">{form.startTime}〜{form.endTime}</span>
-            (限の選択に合わせて自動設定)
+          <p className="rounded-md bg-slate-100 dark:bg-slate-900 px-2 py-1.5 text-[11px] text-slate-600 dark:text-slate-400">
+            時刻:{" "}
+            <span className="tabular-nums font-medium">
+              {form.startTime}〜{form.endTime}
+            </span>
+            <span className="ml-1 text-slate-500">(限の選択に合わせて自動設定)</span>
           </p>
         </div>
         <div className="mt-4 flex gap-2">
@@ -412,7 +467,7 @@ function EditModal({
             type="button"
             onClick={() => void save()}
             disabled={pending}
-            className="flex-1 rounded-md bg-sky-500 py-2 text-sm font-medium text-white disabled:opacity-50"
+            className="flex-1 rounded-md bg-sky-500 py-2 text-sm font-medium text-white disabled:opacity-50 hover:bg-sky-600"
           >
             {pending ? "保存中..." : "保存"}
           </button>
@@ -421,7 +476,7 @@ function EditModal({
               type="button"
               onClick={() => void remove()}
               disabled={pending}
-              className="rounded-md border border-rose-500/30 bg-rose-500/5 px-3 py-2 text-sm text-rose-600 dark:text-rose-300 disabled:opacity-50"
+              className="rounded-md border border-rose-500/30 bg-rose-500/5 px-3 py-2 text-sm text-rose-600 dark:text-rose-300 disabled:opacity-50 hover:bg-rose-500/10"
             >
               削除
             </button>
