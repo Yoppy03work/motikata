@@ -9,15 +9,24 @@ export const dynamic = "force-dynamic";
 
 const HHmm = z.string().regex(/^\d{2}:\d{2}$/, "HH:mm 形式で入力してください");
 
-const UpdateBody = z.object({
-  dayOfWeek: z.number().int().min(1).max(7).optional(),
-  period: z.number().int().min(1).max(7).optional(),
-  startTime: HHmm.optional(),
-  endTime: HHmm.optional(),
-  courseName: z.string().min(1).max(120).optional(),
-  classroom: z.string().max(60).optional().nullable(),
-  teacher: z.string().max(60).optional().nullable(),
-});
+const UpdateBody = z
+  .object({
+    dayOfWeek: z.number().int().min(1).max(7).optional(),
+    period: z.number().int().min(1).max(10).optional(),
+    endPeriod: z.number().int().min(1).max(10).optional(),
+    startTime: HHmm.optional(),
+    endTime: HHmm.optional(),
+    courseName: z.string().min(1).max(120).optional(),
+    classroom: z.string().max(60).optional().nullable(),
+    teacher: z.string().max(60).optional().nullable(),
+  })
+  .refine(
+    (v) => v.period === undefined || v.endPeriod === undefined || v.endPeriod >= v.period,
+    {
+      message: "終了限は開始限以上にしてください",
+      path: ["endPeriod"],
+    },
+  );
 
 export async function PATCH(
   req: Request,

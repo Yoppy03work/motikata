@@ -11,15 +11,22 @@ export const dynamic = "force-dynamic";
 const HHmm = z.string().regex(/^\d{2}:\d{2}$/, "HH:mm 形式で入力してください");
 
 // 手動入力 UI 用の最小入力。tagIds / checklist / reminders は別経路で。
-const CreateBody = z.object({
-  dayOfWeek: z.number().int().min(1).max(7),
-  period: z.number().int().min(1).max(7),
-  startTime: HHmm,
-  endTime: HHmm,
-  courseName: z.string().min(1).max(120),
-  classroom: z.string().max(60).optional().nullable(),
-  teacher: z.string().max(60).optional().nullable(),
-});
+// CIT は 1〜10 限の 1時間枠。連続 2〜4限が普通。
+const CreateBody = z
+  .object({
+    dayOfWeek: z.number().int().min(1).max(7),
+    period: z.number().int().min(1).max(10),
+    endPeriod: z.number().int().min(1).max(10),
+    startTime: HHmm,
+    endTime: HHmm,
+    courseName: z.string().min(1).max(120),
+    classroom: z.string().max(60).optional().nullable(),
+    teacher: z.string().max(60).optional().nullable(),
+  })
+  .refine((v) => v.endPeriod >= v.period, {
+    message: "終了限は開始限以上にしてください",
+    path: ["endPeriod"],
+  });
 
 export async function GET() {
   const guard = await requireAuthApi();

@@ -113,7 +113,10 @@ model TemplateTag {
 model ClassSchedule {
   id            Int            @id @default(autoincrement())
   dayOfWeek     Int
+  // CIT は 9:00 から 1 時間刻みの 10 限制。複数限連続(2-4限)が基本のため
+  // 開始限 (period) と 終了限 (endPeriod) のレンジで表現する。
   period        Int
+  endPeriod     Int            @default(1)
   startTime     String
   endTime       String
   courseName    String

@@ -1,8 +1,8 @@
 "use client";
 
 // 時間割マスター(ClassSchedule)の編集 UI。
-// 曜日 × 時限のグリッドで、各セルに授業を1つ登録する。
-// セルをタップ → 編集 / 追加モーダル。
+// CIT は 9:00 から 1 時間刻みの 10 限制。1コマ = 1〜複数限の連続。
+// グリッド: 月-土 × 1-10限。複数限の授業は rowspan で連続セル占有。
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -10,6 +10,7 @@ type Item = {
   id: number;
   dayOfWeek: number;
   period: number;
+  endPeriod: number;
   startTime: string;
   endTime: string;
   courseName: string;
@@ -26,14 +27,20 @@ const DAYS = [
   { value: 6, label: "土" },
 ];
 
-// CIT 学部の標準時間割(90分授業)。手動編集可能。
-const PERIODS: { value: number; start: string; end: string }[] = [
-  { value: 1, start: "09:00", end: "10:30" },
-  { value: 2, start: "10:40", end: "12:10" },
-  { value: 3, start: "13:00", end: "14:30" },
-  { value: 4, start: "14:40", end: "16:10" },
-  { value: 5, start: "16:20", end: "17:50" },
-];
+// 1限〜10限の標準時刻(9:00-19:00 1時間刻み)
+const PERIODS: { value: number; start: string; end: string }[] = Array.from(
+  { length: 10 },
+  (_, i) => {
+    const startHour = 9 + i;
+    const endHour = startHour + 1;
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return {
+      value: i + 1,
+      start: `${pad(startHour)}:00`,
+      end: `${pad(endHour)}:00`,
+    };
+  },
+);
 
 type EditTarget = {
   dayOfWeek: number;
@@ -45,6 +52,8 @@ type FormState = {
   courseName: string;
   classroom: string;
   teacher: string;
+  startPeriod: number;
+  endPeriod: number;
   startTime: string;
   endTime: string;
 };
@@ -73,13 +82,21 @@ export function TimetableClient() {
     void refresh();
   }, [refresh]);
 
-  // 検索を高速化するため (dayOfWeek, period) のキーで Map 化
-  const grid = useMemo(() => {
-    const m = new Map<string, Item>();
+  // (dayOfWeek, period) → Item の引き当て + 占有判定
+  // - startCells: そのセルが授業の開始セル(rowspan で出力する元)
+  // - occupied: そのセルがすでに別授業に占有されている(td 自体出力しない)
+  const { startCells, occupied } = useMemo(() => {
+    const startCells = new Map<string, Item>();
+    const occupied = new Set<string>();
     for (const it of items) {
-      m.set(`${it.dayOfWeek}/${it.period}`, it);
+      const start = it.period;
+      const end = Math.max(start, it.endPeriod);
+      startCells.set(`${it.dayOfWeek}/${start}`, it);
+      for (let p = start + 1; p <= end; p++) {
+        occupied.add(`${it.dayOfWeek}/${p}`);
+      }
     }
-    return m;
+    return { startCells, occupied };
   }, [items]);
 
   return (
@@ -89,7 +106,7 @@ export function TimetableClient() {
         <table className="w-full border-collapse text-xs">
           <thead>
             <tr>
-              <th className="w-10 border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 p-1 text-slate-600 dark:text-slate-400">
+              <th className="w-12 border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 p-1 text-slate-600 dark:text-slate-400">
                 /
               </th>
               {DAYS.map((d) => (
@@ -110,15 +127,16 @@ export function TimetableClient() {
                   <div className="mt-0.5 text-[9px] text-slate-500 tabular-nums">
                     {p.start}
                   </div>
-                  <div className="text-[9px] text-slate-500 tabular-nums">
-                    {p.end}
-                  </div>
                 </th>
                 {DAYS.map((d) => {
-                  const it = grid.get(`${d.value}/${p.value}`);
+                  const key = `${d.value}/${p.value}`;
+                  if (occupied.has(key)) return null; // 上の行から rowspan で覆われている
+                  const it = startCells.get(key);
+                  const span = it ? Math.max(1, it.endPeriod - it.period + 1) : 1;
                   return (
                     <td
                       key={d.value}
+                      rowSpan={span}
                       className="border border-slate-200 dark:border-slate-700 align-top p-0"
                     >
                       <button
@@ -130,15 +148,20 @@ export function TimetableClient() {
                             existing: it ?? null,
                           })
                         }
-                        className={`block w-full min-h-[3.75rem] p-1.5 text-left transition ${
+                        className={`block w-full p-1.5 text-left transition ${
                           it
                             ? "bg-sky-100 dark:bg-sky-500/10 hover:bg-sky-200 dark:hover:bg-sky-500/20"
                             : "hover:bg-slate-100 dark:hover:bg-slate-900"
                         }`}
+                        style={{ minHeight: `${span * 3}rem` }}
                       >
                         {it ? (
                           <>
-                            <div className="truncate text-[11px] font-medium text-slate-900 dark:text-slate-100">
+                            <div className="text-[10px] text-slate-500">
+                              {it.period}
+                              {it.endPeriod !== it.period ? `-${it.endPeriod}` : ""}限
+                            </div>
+                            <div className="mt-0.5 truncate text-[11px] font-medium text-slate-900 dark:text-slate-100">
                               {it.courseName}
                             </div>
                             {it.classroom && (
@@ -201,25 +224,49 @@ function EditModal({
   setPending: (v: boolean) => void;
   setError: (v: string | null) => void;
 }) {
-  const period = PERIODS.find((p) => p.value === target.period);
   const day = DAYS.find((d) => d.value === target.dayOfWeek);
-  const initial: FormState = useMemo(
-    () => ({
+  const initial: FormState = useMemo(() => {
+    const start = target.existing?.period ?? target.period;
+    const end = target.existing?.endPeriod ?? target.period;
+    return {
       courseName: target.existing?.courseName ?? "",
       classroom: target.existing?.classroom ?? "",
       teacher: target.existing?.teacher ?? "",
-      startTime: target.existing?.startTime ?? period?.start ?? "09:00",
-      endTime: target.existing?.endTime ?? period?.end ?? "10:30",
-    }),
-    [target, period],
-  );
+      startPeriod: start,
+      endPeriod: end,
+      startTime:
+        target.existing?.startTime ??
+        PERIODS[start - 1]?.start ??
+        "09:00",
+      endTime:
+        target.existing?.endTime ??
+        PERIODS[end - 1]?.end ??
+        "10:00",
+    };
+  }, [target]);
   const [form, setForm] = useState<FormState>(initial);
 
-  const update = (patch: Partial<FormState>) => setForm((f) => ({ ...f, ...patch }));
+  // 開始/終了限が変わったら時刻も自動同期
+  const update = (patch: Partial<FormState>) =>
+    setForm((f) => {
+      const next = { ...f, ...patch };
+      if ("startPeriod" in patch || "endPeriod" in patch) {
+        const sp = next.startPeriod;
+        const ep = Math.max(sp, next.endPeriod);
+        next.endPeriod = ep;
+        next.startTime = PERIODS[sp - 1]?.start ?? next.startTime;
+        next.endTime = PERIODS[ep - 1]?.end ?? next.endTime;
+      }
+      return next;
+    });
 
   const save = async () => {
     if (!form.courseName.trim()) {
       setError("授業名を入力してください");
+      return;
+    }
+    if (form.endPeriod < form.startPeriod) {
+      setError("終了限は開始限以上にしてください");
       return;
     }
     setPending(true);
@@ -227,7 +274,8 @@ function EditModal({
     try {
       const body = {
         dayOfWeek: target.dayOfWeek,
-        period: target.period,
+        period: form.startPeriod,
+        endPeriod: form.endPeriod,
         startTime: form.startTime,
         endTime: form.endTime,
         courseName: form.courseName.trim(),
@@ -284,8 +332,7 @@ function EditModal({
       >
         <div className="mb-3 flex items-baseline justify-between">
           <h2 className="text-base font-semibold">
-            {day?.label}曜 {target.period}限
-            {target.existing ? " 編集" : " 追加"}
+            {day?.label}曜 {target.existing ? "編集" : "追加"}
           </h2>
           <button
             type="button"
@@ -306,6 +353,36 @@ function EditModal({
               className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-sky-500"
             />
           </Field>
+          <div className="flex gap-2">
+            <Field label="開始限">
+              <select
+                value={form.startPeriod}
+                onChange={(e) => update({ startPeriod: Number(e.target.value) })}
+                disabled={pending}
+                className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-sky-500"
+              >
+                {PERIODS.map((p) => (
+                  <option key={p.value} value={p.value}>
+                    {p.value}限 ({p.start})
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="終了限">
+              <select
+                value={form.endPeriod}
+                onChange={(e) => update({ endPeriod: Number(e.target.value) })}
+                disabled={pending}
+                className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-sky-500"
+              >
+                {PERIODS.filter((p) => p.value >= form.startPeriod).map((p) => (
+                  <option key={p.value} value={p.value}>
+                    {p.value}限 ({p.end})
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
           <Field label="教室">
             <input
               type="text"
@@ -325,26 +402,10 @@ function EditModal({
               className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-sky-500"
             />
           </Field>
-          <div className="flex gap-2">
-            <Field label="開始">
-              <input
-                type="time"
-                value={form.startTime}
-                onChange={(e) => update({ startTime: e.target.value })}
-                disabled={pending}
-                className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-sky-500"
-              />
-            </Field>
-            <Field label="終了">
-              <input
-                type="time"
-                value={form.endTime}
-                onChange={(e) => update({ endTime: e.target.value })}
-                disabled={pending}
-                className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-sky-500"
-              />
-            </Field>
-          </div>
+          <p className="text-[10px] text-slate-500">
+            時刻: <span className="tabular-nums">{form.startTime}〜{form.endTime}</span>
+            (限の選択に合わせて自動設定)
+          </p>
         </div>
         <div className="mt-4 flex gap-2">
           <button
