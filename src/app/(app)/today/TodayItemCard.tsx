@@ -1,10 +1,39 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { formatInTimeZone } from "date-fns-tz";
 import { APP_TZ } from "@/lib/tz";
 import type { TodayItem } from "./types";
+
+// notes 内の URL を anchor 化するためのヘルパ。
+// notes 例: "manaba: https://cit.manaba.jp/ct/course_xxx_query_yyy"
+const URL_RE = /(https?:\/\/[^\s<>"']+)/g;
+function renderWithLinks(text: string): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  let lastIdx = 0;
+  let m: RegExpExecArray | null;
+  URL_RE.lastIndex = 0;
+  while ((m = URL_RE.exec(text)) !== null) {
+    if (m.index > lastIdx) parts.push(text.slice(lastIdx, m.index));
+    const url = m[0];
+    parts.push(
+      <a
+        key={`u-${m.index}`}
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(e) => e.stopPropagation()}
+        className="break-all text-sky-600 dark:text-sky-400 underline underline-offset-2"
+      >
+        {url}
+      </a>,
+    );
+    lastIdx = m.index + url.length;
+  }
+  if (lastIdx < text.length) parts.push(text.slice(lastIdx));
+  return parts;
+}
 
 const priorityLabel: Record<TodayItem["priority"], string> = {
   HIGH: "高",
@@ -93,16 +122,29 @@ export function TodayItemCard({
     });
   };
 
+  const [detailOpen, setDetailOpen] = useState(false);
+
   return (
+    <>
     <article
-      className={`rounded-xl border px-3 py-2.5 ${
+      onClick={() => setDetailOpen(true)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          setDetailOpen(true);
+        }
+      }}
+      aria-label={`${item.title} の詳細を開く`}
+      className={`cursor-pointer rounded-xl border px-3 py-2.5 transition active:scale-[0.99] ${
         done
           ? "border-slate-200 dark:border-slate-800 bg-slate-100/50 dark:bg-slate-900/50 opacity-60"
           : isEvent
-            ? "border-sky-900/40 bg-slate-100 dark:bg-slate-900"
+            ? "border-sky-900/40 bg-slate-100 dark:bg-slate-900 hover:bg-slate-200/70 dark:hover:bg-slate-900/70"
             : item.required
-              ? "border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900"
-              : "border-slate-200/60 dark:border-slate-800/60 bg-slate-100/70 dark:bg-slate-900/70"
+              ? "border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 hover:bg-slate-200/70 dark:hover:bg-slate-900/70"
+              : "border-slate-200/60 dark:border-slate-800/60 bg-slate-100/70 dark:bg-slate-900/70 hover:bg-slate-200/70 dark:hover:bg-slate-900/70"
       }`}
     >
       <div className="flex items-start justify-between gap-2">
@@ -142,16 +184,11 @@ export function TodayItemCard({
           >
             {item.title}
           </h3>
-          {item.subtitle && (
-            <p className="mt-0.5 line-clamp-2 whitespace-pre-wrap text-[11px] text-slate-600 dark:text-slate-400">
-              {item.subtitle}
-            </p>
-          )}
         </div>
       </div>
 
       {checklist.length > 0 && (
-        <ul className="mt-2 space-y-0.5">
+        <ul className="mt-2 space-y-0.5" onClick={(e) => e.stopPropagation()}>
           {checklist.map((c) => (
             <li key={c.id}>
               <label className="flex items-center gap-2 py-0.5 touch-manipulation">
@@ -172,7 +209,7 @@ export function TodayItemCard({
       )}
 
       {!done && !prepareMode && !isEvent && (
-        <div className="mt-2 flex gap-1.5">
+        <div className="mt-2 flex gap-1.5" onClick={(e) => e.stopPropagation()}>
           <button
             onClick={complete}
             disabled={pending}
@@ -191,7 +228,7 @@ export function TodayItemCard({
       )}
 
       {done && !prepareMode && (
-        <div className="mt-2">
+        <div className="mt-2" onClick={(e) => e.stopPropagation()}>
           <button
             onClick={uncomplete}
             disabled={pending}
@@ -210,5 +247,154 @@ export function TodayItemCard({
 
       {error && <p className="mt-2 text-[11px] text-rose-400">{error}</p>}
     </article>
+    {detailOpen && (
+      <DetailModal
+        item={item}
+        due={due}
+        done={done}
+        isEvent={isEvent}
+        onClose={() => setDetailOpen(false)}
+      />
+    )}
+    </>
+  );
+}
+
+function DetailModal({
+  item,
+  due,
+  done,
+  isEvent,
+  onClose,
+}: {
+  item: TodayItem;
+  due: Date;
+  done: boolean;
+  isEvent: boolean;
+  onClose: () => void;
+}) {
+  // Esc で閉じる + 背景スクロール固定
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[85vh] w-full max-w-md flex-col rounded-t-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] shadow-2xl sm:rounded-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-slate-300 dark:bg-slate-700 sm:hidden" />
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
+              <span className="tabular-nums">
+                {formatInTimeZone(due, APP_TZ, "M月d日 (EEE) HH:mm")}
+              </span>
+              <span
+                className={`rounded-md px-1.5 py-0.5 text-[10px] font-medium ${
+                  isEvent
+                    ? "bg-sky-500/15 text-sky-700 dark:text-sky-300"
+                    : item.required
+                      ? "bg-slate-300 dark:bg-slate-700 text-slate-800 dark:text-slate-200"
+                      : "bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400"
+                }`}
+              >
+                {isEvent ? "予定" : item.required ? "必須" : "任意"}
+              </span>
+              {!isEvent && (
+                <span
+                  className={`rounded-md border px-1.5 py-0.5 text-[10px] font-medium ${priorityTone[item.priority]}`}
+                >
+                  優先度 {priorityLabel[item.priority]}
+                </span>
+              )}
+              <span className="rounded-md bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-600 dark:text-slate-400">
+                {item.source}
+              </span>
+            </div>
+            <h2
+              className={`mt-2 break-words text-lg font-semibold leading-snug ${done ? "line-through opacity-60" : ""}`}
+            >
+              {item.title}
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+            aria-label="閉じる"
+          >
+            閉じる
+          </button>
+        </div>
+
+        <div className="mt-3 flex-1 overflow-y-auto">
+          {item.tags.length > 0 && (
+            <div className="mb-3 flex flex-wrap gap-1">
+              {item.tags.map((t) => (
+                <span
+                  key={t.id}
+                  className="rounded-md bg-slate-200 dark:bg-slate-800 px-2 py-0.5 text-xs text-slate-700 dark:text-slate-300"
+                  style={t.color ? { color: t.color } : undefined}
+                >
+                  #{t.name}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {item.subtitle && (
+            <div className="mb-3">
+              <h3 className="mb-1 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                メモ
+              </h3>
+              <div className="whitespace-pre-wrap break-words rounded-lg bg-slate-100 dark:bg-slate-900 p-3 text-sm text-slate-800 dark:text-slate-200">
+                {renderWithLinks(item.subtitle)}
+              </div>
+            </div>
+          )}
+
+          {item.checklist.length > 0 && (
+            <div className="mb-3">
+              <h3 className="mb-1 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                チェックリスト
+              </h3>
+              <ul className="space-y-0.5">
+                {item.checklist.map((c) => (
+                  <li
+                    key={c.id}
+                    className="flex items-center gap-2 text-sm"
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 rounded border ${c.checked ? "bg-sky-500 border-sky-500" : "border-slate-400 dark:border-slate-600 bg-slate-200 dark:bg-slate-800"}`}
+                      aria-hidden
+                    />
+                    <span className={c.checked ? "text-slate-500 line-through" : ""}>
+                      {c.label}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {!item.subtitle && item.checklist.length === 0 && item.tags.length === 0 && (
+            <p className="text-xs text-slate-500">追加情報はありません</p>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
