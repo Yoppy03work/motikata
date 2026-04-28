@@ -184,6 +184,7 @@ export function MemoClient() {
               tab={tab}
               onArchive={() => archive(n.id, !n.archivedAt)}
               onDelete={() => remove(n.id)}
+              onPromoted={() => void load()}
             />
           ))}
         </ul>
@@ -197,13 +198,46 @@ function NoteRow({
   tab,
   onArchive,
   onDelete,
+  onPromoted,
 }: {
   note: Note;
   tab: Tab;
   onArchive: () => void;
   onDelete: () => void;
+  onPromoted: () => void;
 }) {
   const archived = !!note.archivedAt;
+  const promoted = !!note.promotedTaskId;
+  const [promoteOpen, setPromoteOpen] = useState(false);
+  // 既定: 今日 23:59 (JST)
+  const defaultYmd = formatInTimeZone(new Date(), APP_TZ, "yyyy-MM-dd");
+  const [dueDate, setDueDate] = useState<string>(defaultYmd);
+  const [dueTime, setDueTime] = useState<string>("23:59");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const promote = async () => {
+    setPending(true);
+    setError(null);
+    try {
+      const dueAt = `${dueDate}T${dueTime}:00+09:00`;
+      const res = await fetch(`/api/memo/${note.id}/promote`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dueAt }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setError(typeof body.error === "string" ? body.error : `失敗 (${res.status})`);
+        return;
+      }
+      setPromoteOpen(false);
+      onPromoted();
+    } finally {
+      setPending(false);
+    }
+  };
+
   return (
     <li
       className={`rounded-xl border p-3 ${
@@ -217,7 +251,7 @@ function NoteRow({
       <p className={`whitespace-pre-wrap text-sm ${archived ? "line-through" : ""}`}>
         {note.body}
       </p>
-      <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500">
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
         <span>
           {formatInTimeZone(new Date(note.createdAt), APP_TZ, "M/d HH:mm", { locale: ja })}
           {tab === "stream" && (
@@ -225,10 +259,26 @@ function NoteRow({
               {note.kind === "INBOX" ? "Inbox" : "日次"}
             </span>
           )}
+          {promoted && (
+            <span className="ml-2 rounded bg-sky-500/15 text-sky-700 dark:text-sky-300 px-1.5 py-0.5">
+              ✓ タスク化済
+            </span>
+          )}
         </span>
         <div className="flex gap-2">
+          {!promoted && note.kind === "INBOX" && !archived && (
+            <button
+              onClick={() => setPromoteOpen((v) => !v)}
+              className="text-sky-600 dark:text-sky-400 hover:underline"
+            >
+              タスク化
+            </button>
+          )}
           {note.kind === "INBOX" && (
-            <button onClick={onArchive} className="text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200">
+            <button
+              onClick={onArchive}
+              className="text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
+            >
               {archived ? "戻す" : "消化"}
             </button>
           )}
@@ -237,6 +287,46 @@ function NoteRow({
           </button>
         </div>
       </div>
+      {promoteOpen && (
+        <div className="mt-2 rounded-md border border-sky-500/30 bg-sky-500/5 p-2.5">
+          <p className="mb-1.5 text-[11px] text-sky-700 dark:text-sky-300">
+            タスクの締切
+          </p>
+          <div className="flex gap-1.5">
+            <input
+              type="date"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+              disabled={pending}
+              className="flex-1 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-sky-500"
+            />
+            <input
+              type="time"
+              value={dueTime}
+              onChange={(e) => setDueTime(e.target.value)}
+              disabled={pending}
+              className="w-24 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-sky-500"
+            />
+          </div>
+          <div className="mt-2 flex gap-1.5">
+            <button
+              onClick={() => void promote()}
+              disabled={pending}
+              className="flex-1 rounded-md bg-sky-500 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+            >
+              {pending ? "作成中..." : "タスク化(メモは自動アーカイブ)"}
+            </button>
+            <button
+              onClick={() => setPromoteOpen(false)}
+              disabled={pending}
+              className="rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-xs text-slate-700 dark:text-slate-300 disabled:opacity-50"
+            >
+              やめる
+            </button>
+          </div>
+          {error && <p className="mt-1 text-[11px] text-rose-500">{error}</p>}
+        </div>
+      )}
     </li>
   );
 }

@@ -7,6 +7,7 @@ import { applyTheme, readTheme, writeTheme, type ThemeMode } from "@/lib/theme";
 import { AcademicImport } from "./AcademicImport";
 import { ManabaSettings } from "./ManabaSettings";
 import { PushSettings } from "./PushSettings";
+import { TagSettings } from "./TagSettings";
 
 const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
   { value: "system", label: "自動" },
@@ -148,6 +149,13 @@ export default function SettingsPage() {
             manaba 連携
           </h2>
           <ManabaSettings />
+        </div>
+
+        <div className="rounded-xl border border-slate-200 bg-slate-100 p-4 dark:border-slate-800 dark:bg-slate-900">
+          <h2 className="mb-2 text-sm font-medium text-slate-700 dark:text-slate-300">
+            タグ
+          </h2>
+          <TagSettings />
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-slate-100 p-4 dark:border-slate-800 dark:bg-slate-900">
