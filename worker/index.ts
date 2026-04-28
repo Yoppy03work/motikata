@@ -74,12 +74,16 @@ cron.schedule(
   { timezone: "Asia/Tokyo" },
 );
 
-// cleanup-past-tasks: 毎朝 04:00 JST。締切が過ぎた TASK を削除
-// (EVENT は対象外、行事や授業日由来の予定は残す)
+// cleanup-past-tasks + manaba-sync: 毎朝 04:00 JST。
+// 順序:
+//   1. cleanup で締切超過の TASK を消す
+//   2. manaba-sync で未来の課題を取り直す
+// (cleanup → sync の順は、消した直後に最新を取り直すため)
 cron.schedule(
   "0 4 * * *",
-  () => {
-    void callJob("/api/jobs/cleanup-past-tasks", "cleanup-past-tasks");
+  async () => {
+    await callJob("/api/jobs/cleanup-past-tasks", "cleanup-past-tasks");
+    await callJob("/api/jobs/manaba-sync", "manaba-sync");
   },
   { timezone: "Asia/Tokyo" },
 );

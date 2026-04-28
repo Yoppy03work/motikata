@@ -185,7 +185,7 @@ function parseDueDate(text: string): Date | null {
   //   "2026-04-25 23:59"
   //   "2026/04/25 23:59"
   //   "2026年4月25日 23:59"
-  //   "4月25日 23:59" (年なし — 同一年とみなす)
+  //   "4月25日 23:59" (年なし — 後述のロジックで現年/来年を推定)
   const t = text.trim();
   const m1 = t.match(
     /(\d{4})[-\/年](\d{1,2})[-\/月](\d{1,2})日?\s*(\d{1,2})[:：](\d{2})/,
@@ -197,9 +197,17 @@ function parseDueDate(text: string): Date | null {
   const m2 = t.match(/(\d{1,2})[-\/月](\d{1,2})日?\s*(\d{1,2})[:：](\d{2})/);
   if (m2) {
     const now = new Date();
-    const y = now.getUTCFullYear();
-    const [, m, d, hh, mm] = m2.map(Number);
-    return new Date(Date.UTC(y, m - 1, d, hh - 9, Number(mm)));
+    const [, mon, d, hh, mm] = m2.map(Number);
+    // 年なしの日付: まず今年で解釈、過去になるなら翌年と推定。
+    // 例: 4月時点で "1/15 23:59" は「今年の1月」(過去)ではなく「来年の1月」を意図。
+    //     UI 表示や manaba 仕様で年を省略するケースを許容するための fallback。
+    let y = now.getUTCFullYear();
+    let candidate = new Date(Date.UTC(y, mon - 1, d, hh - 9, mm));
+    if (candidate.getTime() < now.getTime()) {
+      y += 1;
+      candidate = new Date(Date.UTC(y, mon - 1, d, hh - 9, mm));
+    }
+    return candidate;
   }
   return null;
 }
