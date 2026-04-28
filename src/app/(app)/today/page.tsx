@@ -256,9 +256,11 @@ function Group({
   muted?: boolean;
 }) {
   return (
-    <div className={`mb-5 ${muted ? "opacity-85" : ""}`}>
-      <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-600 dark:text-slate-400">{label}</h3>
-      <ul className="space-y-2.5">
+    <div className={`mb-4 ${muted ? "opacity-85" : ""}`}>
+      <h3 className="mb-1.5 text-xs font-medium uppercase tracking-wide text-slate-600 dark:text-slate-400">
+        {label}
+      </h3>
+      <ul className="space-y-1.5">
         {items.map((it) => (
           <li key={it.id}>
             <TodayItemCard item={it} prepareMode={prepareMode} />

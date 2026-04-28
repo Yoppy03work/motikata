@@ -95,7 +95,7 @@ export function TodayItemCard({
 
   return (
     <article
-      className={`rounded-2xl border p-4 sm:p-5 ${
+      className={`rounded-xl border px-3 py-2.5 ${
         done
           ? "border-slate-200 dark:border-slate-800 bg-slate-100/50 dark:bg-slate-900/50 opacity-60"
           : isEvent
@@ -105,10 +105,10 @@ export function TodayItemCard({
               : "border-slate-200/60 dark:border-slate-800/60 bg-slate-100/70 dark:bg-slate-900/70"
       }`}
     >
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-sm text-slate-600 dark:text-slate-400">{formatInTimeZone(due, APP_TZ, "HH:mm")}</span>
+          <div className="flex flex-wrap items-center gap-1">
+            <span className="text-xs text-slate-600 dark:text-slate-400">{formatInTimeZone(due, APP_TZ, "HH:mm")}</span>
             <span
               className={`rounded-md px-1.5 py-0.5 text-[10px] font-medium ${
                 isEvent
@@ -138,12 +138,12 @@ export function TodayItemCard({
             ))}
           </div>
           <h3
-            className={`mt-1.5 break-words text-base font-semibold leading-snug ${done ? "line-through" : ""}`}
+            className={`mt-0.5 line-clamp-2 break-words text-sm font-semibold leading-snug ${done ? "line-through" : ""}`}
           >
             {item.title}
           </h3>
           {item.subtitle && (
-            <p className="mt-1 whitespace-pre-wrap text-xs text-slate-600 dark:text-slate-400">
+            <p className="mt-0.5 line-clamp-2 whitespace-pre-wrap text-[11px] text-slate-600 dark:text-slate-400">
               {item.subtitle}
             </p>
           )}
@@ -151,18 +151,18 @@ export function TodayItemCard({
       </div>
 
       {checklist.length > 0 && (
-        <ul className="mt-3 space-y-1.5">
+        <ul className="mt-2 space-y-0.5">
           {checklist.map((c) => (
             <li key={c.id}>
-              <label className="flex items-center gap-3 py-1.5 touch-manipulation">
+              <label className="flex items-center gap-2 py-0.5 touch-manipulation">
                 <input
                   type="checkbox"
                   checked={c.checked}
                   onChange={() => toggleCheck(c.id)}
                   disabled={pending && false /* don't block UX */}
-                  className="h-5 w-5 rounded border-slate-400 dark:border-slate-600 bg-slate-200 dark:bg-slate-800 accent-sky-500"
+                  className="h-4 w-4 rounded border-slate-400 dark:border-slate-600 bg-slate-200 dark:bg-slate-800 accent-sky-500"
                 />
-                <span className={`text-sm ${c.checked ? "text-slate-500 line-through" : ""}`}>
+                <span className={`text-xs ${c.checked ? "text-slate-500 line-through" : ""}`}>
                   {c.label}
                 </span>
               </label>
@@ -172,18 +172,18 @@ export function TodayItemCard({
       )}
 
       {!done && !prepareMode && !isEvent && (
-        <div className="mt-3 flex gap-2">
+        <div className="mt-2 flex gap-1.5">
           <button
             onClick={complete}
             disabled={pending}
-            className="flex-1 rounded-lg bg-sky-500 py-2 text-sm font-medium text-slate-950 disabled:opacity-50"
+            className="flex-1 rounded-md bg-sky-500 py-1.5 text-xs font-semibold text-slate-950 disabled:opacity-50"
           >
             完了
           </button>
           <button
             onClick={snooze}
             disabled={pending}
-            className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-200 dark:bg-slate-800 px-3 py-2 text-sm text-slate-700 dark:text-slate-300 disabled:opacity-50"
+            className="rounded-md border border-slate-300 dark:border-slate-700 bg-slate-200 dark:bg-slate-800 px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-300 disabled:opacity-50"
           >
             1時間後に
           </button>
@@ -191,11 +191,11 @@ export function TodayItemCard({
       )}
 
       {done && !prepareMode && (
-        <div className="mt-3">
+        <div className="mt-2">
           <button
             onClick={uncomplete}
             disabled={pending}
-            className="text-xs text-slate-600 dark:text-slate-400 underline-offset-2 hover:underline disabled:opacity-50"
+            className="text-[11px] text-slate-600 dark:text-slate-400 underline-offset-2 hover:underline disabled:opacity-50"
           >
             完了を取り消す
           </button>
@@ -203,7 +203,7 @@ export function TodayItemCard({
       )}
 
       {prepareMode && checklist.length > 0 && (
-        <p className="mt-2 text-[11px] text-violet-300/80">
+        <p className="mt-1 text-[11px] text-violet-300/80">
           今夜のうちにカバンに入れておく持ち物
         </p>
       )}
