@@ -13,8 +13,6 @@ import type { TodayItem } from "./types";
 
 export const dynamic = "force-dynamic";
 
-const EVENING_START_HOUR = 18;
-
 function ymdJst(d: Date): string {
   return format(toZonedTime(d, APP_TZ), "yyyy-MM-dd");
 }
@@ -74,7 +72,6 @@ export default async function TodayPage({
   const viewYmd = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : todayYmd;
   const viewDate = parseYmd(viewYmd);
   const isToday = viewYmd === todayYmd;
-  const isEvening = isToday && nowJst.getHours() >= EVENING_START_HOUR;
   const showTomorrowPrep = isToday; // 他の日を見てる時は翌日プレビューなし
 
   const { from, to } = monthWindow(viewYmd);
@@ -130,7 +127,7 @@ export default async function TodayPage({
           <p className="text-xs text-slate-600 dark:text-slate-400">
             <span className="tabular-nums">{format(viewDate, "yyyy年")}</span>
             <span className="mx-1.5 text-slate-600">·</span>
-            <span>{isEvening ? "今夜の準備モード" : isToday ? "今日" : "閲覧中"}</span>
+            <span>{isToday ? "今日" : "閲覧中"}</span>
           </p>
           <h1 className="mt-0.5 truncate text-2xl font-semibold">{primaryLabel}</h1>
         </div>
@@ -153,17 +150,8 @@ export default async function TodayPage({
       {nextUp && <NextUpCard item={nextUp} now={nowJst} />}
 
       <div className="mt-5 space-y-10">
-        {isEvening && TomorrowSection ? (
-          <>
-            {TomorrowSection}
-            {PrimarySection}
-          </>
-        ) : (
-          <>
-            {PrimarySection}
-            {TomorrowSection}
-          </>
-        )}
+        {PrimarySection}
+        {TomorrowSection}
       </div>
     </main>
     </SwipeNav>
