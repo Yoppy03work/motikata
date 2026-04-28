@@ -29,6 +29,9 @@ async function callJob(path: string, label: string): Promise<void> {
           skipped?: number;
           examined?: number;
           deleted?: number;
+          inserted?: number;
+          classes?: number;
+          isClassDay?: boolean;
         }
       | null;
     if (
@@ -36,12 +39,16 @@ async function callJob(path: string, label: string): Promise<void> {
       (json.sent ||
         json.failed ||
         json.skipped ||
-        json.deleted)
+        json.deleted ||
+        json.inserted ||
+        json.classes)
     ) {
       const parts: string[] = [];
       if (json.examined !== undefined) parts.push(`examined=${json.examined}`);
+      if (json.classes !== undefined) parts.push(`classes=${json.classes}`);
       if (json.sent !== undefined) parts.push(`sent=${json.sent}`);
       if (json.failed !== undefined) parts.push(`failed=${json.failed}`);
+      if (json.inserted !== undefined) parts.push(`inserted=${json.inserted}`);
       if (json.skipped !== undefined) parts.push(`skipped=${json.skipped}`);
       if (json.deleted !== undefined) parts.push(`deleted=${json.deleted}`);
       console.log(`[worker] ${label}: ${parts.join(" ")}`);
@@ -51,11 +58,13 @@ async function callJob(path: string, label: string): Promise<void> {
   }
 }
 
-// expand-today: 毎朝 05:00 JST(未実装。RECURRING / CLASS テンプレから今日のインスタンス展開)
+// expand-today: 毎朝 05:00 JST。今日の授業 (ClassSchedule × ClassDay) を
+// TaskInstance に EVENT として展開し、持ち物 ChecklistTemplate を
+// チェックリストとしてコピーする
 cron.schedule(
   "0 5 * * *",
-  async () => {
-    console.log("[worker] expand-today fired");
+  () => {
+    void callJob("/api/jobs/expand-today", "expand-today");
   },
   { timezone: "Asia/Tokyo" },
 );

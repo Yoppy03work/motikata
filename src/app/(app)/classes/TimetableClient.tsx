@@ -401,6 +401,38 @@ function EditModal({
     };
   }, [target]);
   const [form, setForm] = useState<FormState>(initial);
+  // 持ち物 (ChecklistTemplate) — ClassSchedule の id があるときだけ管理可
+  const [items, setItems] = useState<string[]>([""]);
+  const [itemsLoaded, setItemsLoaded] = useState(false);
+
+  // 既存 schedule の場合は持ち物テンプレを取得
+  useEffect(() => {
+    if (!target.existing) {
+      setItemsLoaded(true);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/classes/${target.existing!.id}/items`);
+        if (!res.ok) {
+          setItemsLoaded(true);
+          return;
+        }
+        const body = await res.json();
+        if (cancelled) return;
+        const labels: string[] = (body.items ?? []).map(
+          (it: { label: string }) => it.label,
+        );
+        setItems(labels.length > 0 ? labels : [""]);
+      } finally {
+        if (!cancelled) setItemsLoaded(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [target]);
 
   const update = (patch: Partial<FormState>) =>
     setForm((f) => {
@@ -450,6 +482,25 @@ function EditModal({
         const err = await res.json().catch(() => ({}));
         setError(typeof err.error === "string" ? err.error : `保存失敗 (${res.status})`);
         return;
+      }
+      const json = await res.json().catch(() => ({}));
+      const classId = target.existing?.id ?? json.item?.id;
+
+      // 持ち物テンプレも保存(空白行は除外)
+      if (classId) {
+        const cleaned = items
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .map((label, i) => ({ label, orderIdx: i }));
+        const itemsRes = await fetch(`/api/classes/${classId}/items`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ items: cleaned }),
+        });
+        if (!itemsRes.ok) {
+          setError(`持ち物の保存に失敗 (${itemsRes.status})`);
+          return;
+        }
       }
       await onSaved();
     } finally {
@@ -564,6 +615,54 @@ function EditModal({
             </span>
             <span className="ml-1 text-slate-500">(限の選択に合わせて自動設定)</span>
           </p>
+
+          {/* 持ち物テンプレ */}
+          <div>
+            <span className="block text-xs text-slate-600 dark:text-slate-400">
+              持ち物(毎朝、その日の授業に展開されます)
+            </span>
+            {!itemsLoaded ? (
+              <p className="mt-1 text-[11px] text-slate-500">読み込み中…</p>
+            ) : (
+              <ul className="mt-1 space-y-1">
+                {items.map((line, i) => (
+                  <li key={i} className="flex items-center gap-1.5">
+                    <input
+                      type="text"
+                      value={line}
+                      onChange={(e) => {
+                        const next = [...items];
+                        next[i] = e.target.value;
+                        setItems(next);
+                      }}
+                      disabled={pending}
+                      placeholder="例: 教科書 / 関数電卓 / レポート用紙"
+                      className="flex-1 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-sky-500"
+                    />
+                    <button
+                      type="button"
+                      disabled={pending}
+                      onClick={() =>
+                        setItems(items.filter((_, j) => j !== i).length === 0 ? [""] : items.filter((_, j) => j !== i))
+                      }
+                      aria-label="削除"
+                      className="rounded-md px-2 py-1 text-xs text-slate-500 hover:text-rose-500"
+                    >
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => setItems([...items, ""])}
+              className="mt-1 text-[11px] text-sky-600 dark:text-sky-400 hover:underline"
+            >
+              + 行を追加
+            </button>
+          </div>
         </div>
         <div className="mt-4 flex gap-2">
           <button
