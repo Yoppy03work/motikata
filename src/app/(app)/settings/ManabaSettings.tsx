@@ -40,7 +40,7 @@ export function ManabaSettings() {
 
   const save = async () => {
     if (!username || !password) {
-      setError("学籍番号とパスワードを両方入力してください");
+      setError("MARINE IDとパスワードを両方入力してください");
       return;
     }
     setPending(true);
@@ -128,7 +128,7 @@ export function ManabaSettings() {
       {cred && !editing && (
         <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-3 text-xs">
           <div className="text-slate-700 dark:text-slate-300">
-            <span className="font-medium">学籍番号:</span> {cred.username}
+            <span className="font-medium">MARINE ID:</span> {cred.username}
           </div>
           <div className="mt-0.5 text-slate-500">
             最終同期: {formatTs(cred.lastSyncedAt)}
@@ -175,7 +175,7 @@ export function ManabaSettings() {
         <div className="space-y-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-3">
           <label className="block text-xs">
             <span className="block text-slate-600 dark:text-slate-400">
-              学籍番号
+              MARINE ID
             </span>
             <input
               type="text"
