@@ -31,6 +31,8 @@ async function callJob(path: string, label: string): Promise<void> {
           deleted?: number;
           inserted?: number;
           classes?: number;
+          scheduled?: number;
+          scanned?: number;
           isClassDay?: boolean;
         }
       | null;
@@ -41,14 +43,18 @@ async function callJob(path: string, label: string): Promise<void> {
         json.skipped ||
         json.deleted ||
         json.inserted ||
-        json.classes)
+        json.classes ||
+        json.scheduled ||
+        json.scanned)
     ) {
       const parts: string[] = [];
       if (json.examined !== undefined) parts.push(`examined=${json.examined}`);
       if (json.classes !== undefined) parts.push(`classes=${json.classes}`);
+      if (json.scanned !== undefined) parts.push(`scanned=${json.scanned}`);
       if (json.sent !== undefined) parts.push(`sent=${json.sent}`);
       if (json.failed !== undefined) parts.push(`failed=${json.failed}`);
       if (json.inserted !== undefined) parts.push(`inserted=${json.inserted}`);
+      if (json.scheduled !== undefined) parts.push(`scheduled=${json.scheduled}`);
       if (json.skipped !== undefined) parts.push(`skipped=${json.skipped}`);
       if (json.deleted !== undefined) parts.push(`deleted=${json.deleted}`);
       console.log(`[worker] ${label}: ${parts.join(" ")}`);
@@ -74,11 +80,13 @@ cron.schedule("* * * * *", () => {
   void callJob("/api/jobs/dispatch-reminders", "dispatch-reminders");
 });
 
-// escalate: 毎朝 07:00 JST(未実装。前日の必須未完了を再リマインド)
+// escalate: 毎朝 07:00 JST。
+// 当日中(同日)に締切がある status=OPEN な TASK に対して
+// 即時発火 Reminder (PUSH) を作成する。dispatchReminders が拾って実送信する
 cron.schedule(
   "0 7 * * *",
-  async () => {
-    console.log("[worker] escalate fired");
+  () => {
+    void callJob("/api/jobs/escalate", "escalate");
   },
   { timezone: "Asia/Tokyo" },
 );

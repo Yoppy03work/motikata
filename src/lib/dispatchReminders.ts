@@ -9,6 +9,7 @@ import { formatInTimeZone } from "date-fns-tz";
 import { ja } from "date-fns/locale/ja";
 import { prisma } from "@/lib/db";
 import { isSlackEnabled, sendSlackMessage } from "@/lib/slack";
+import { isPushConfigured, sendPushToAll } from "@/lib/push";
 import { APP_TZ } from "@/lib/tz";
 
 const MAX_ATTEMPTS = 3;
@@ -104,10 +105,86 @@ export async function dispatchPendingReminders(): Promise<DispatchSummary> {
       continue;
     }
 
-    // 他チャネル(PUSH)は別 dispatcher の責務。ここでは触らない。
+    if (r.channel === "PUSH") {
+      const ok = await isPushConfigured();
+      if (!ok) {
+        await prisma.reminder.update({
+          where: { id: r.id },
+          data: {
+            status: "SKIPPED",
+            lastError: "VAPID 鍵が未設定です",
+          },
+        });
+        skipped++;
+        continue;
+      }
+      try {
+        const payload = buildPushPayload(r.instance);
+        const result = await sendPushToAll(payload);
+        if (result.total === 0) {
+          // 購読者がいないので SKIPPED 扱いにして retry しない
+          await prisma.reminder.update({
+            where: { id: r.id },
+            data: {
+              status: "SKIPPED",
+              lastError: "Push 購読者がいません",
+            },
+          });
+          skipped++;
+          continue;
+        }
+        await prisma.reminder.update({
+          where: { id: r.id },
+          data: {
+            status: "SENT",
+            sentAt: new Date(),
+            attempts: r.attempts + 1,
+            lastError:
+              result.failed > 0
+                ? `partial: delivered=${result.delivered} failed=${result.failed}`
+                : null,
+          },
+        });
+        sent++;
+      } catch (e) {
+        const nextAttempts = r.attempts + 1;
+        const failedNow = nextAttempts >= MAX_ATTEMPTS;
+        await prisma.reminder.update({
+          where: { id: r.id },
+          data: {
+            status: failedNow ? "FAILED" : "PENDING",
+            attempts: nextAttempts,
+            lastError: (e instanceof Error ? e.message : String(e)).slice(0, 500),
+          },
+        });
+        failed++;
+      }
+      continue;
+    }
   }
 
   return { sent, failed, skipped, examined: pending.length };
+}
+
+function buildPushPayload(instance: ReminderInstance): {
+  title: string;
+  body: string;
+  url: string;
+  tag: string;
+} {
+  const time = formatInTimeZone(instance.dueAt, APP_TZ, "M月d日 HH:mm");
+  const tag =
+    instance.itemType === "EVENT"
+      ? "予定"
+      : instance.required
+        ? "必須タスク"
+        : "任意タスク";
+  return {
+    title: `${tag}: ${instance.title}`.slice(0, 120),
+    body: `⏰ ${time}`,
+    url: "/today",
+    tag: `task-${instance.id}`,
+  };
 }
 
 type ReminderInstance = {
