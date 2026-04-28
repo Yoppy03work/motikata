@@ -144,12 +144,17 @@ async function login(
   // CIT manaba のフィールド名は userid / password
   params.set("userid", username);
   params.set("password", password);
+  // submit ボタンの name=login value=ログイン もブラウザが送るのでそれを再現
+  // (manaba 内部でこの値の有無を確認している可能性)
+  if (!params.has("login")) params.set("login", "ログイン");
 
+  const baseOrigin = new URL(base).origin;
   const postRes = await manabaFetch(jar, postUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
       Referer: loginUrl,
+      Origin: baseOrigin,
     },
     body: params.toString(),
   });
@@ -233,6 +238,47 @@ function parseAssignmentsHtml(html: string, base: string): ManabaAssignment[] {
   return out;
 }
 
+// 課題一覧ページの候補 URL。manaba のバージョンによって path が変わるため、
+// 順に試して 200 を返す最初のものを採用する。
+const ASSIGNMENT_URL_CANDIDATES = [
+  "/ct/home_summary_published_report",
+  "/ct/home_published_report",
+  "/ct/page_published_report",
+  "/ct/home_summary",
+  "/ct/mypage_published_report",
+];
+
+async function findAssignmentsUrl(jar: CookieJar, base: string): Promise<string> {
+  // まずホームを取得して 「課題」 系のリンクを探す
+  const homeRes = await manabaFetch(jar, `${base}/ct/home`);
+  if (homeRes.ok) {
+    const $ = cheerio.load(await homeRes.text());
+    // テキスト or タイトルに「課題」を含むリンクを優先
+    let bestHref: string | null = null;
+    $("a[href]").each((_, el) => {
+      const href = $(el).attr("href") || "";
+      const text = $(el).text();
+      if (
+        (text.includes("課題") || /report|published/i.test(href)) &&
+        !/discuss|news|grade|login/i.test(href)
+      ) {
+        if (!bestHref) bestHref = href;
+      }
+    });
+    if (bestHref) return new URL(bestHref, `${base}/ct/`).toString();
+  }
+  // 見つからない場合は候補を順試行
+  for (const path of ASSIGNMENT_URL_CANDIDATES) {
+    const url = `${base}${path}`;
+    const res = await manabaFetch(jar, url);
+    if (res.ok) return url;
+  }
+  throw new ManabaError(
+    `課題一覧 URL が特定できませんでした(候補すべて 404 / unreachable)`,
+    "fetch",
+  );
+}
+
 export async function fetchManabaAssignments(
   username: string,
   password: string,
@@ -243,11 +289,11 @@ export async function fetchManabaAssignments(
 
   await login(jar, base, username, password);
 
-  const fetchUrl = `${base}/ct/mypage_published_report`;
+  const fetchUrl = await findAssignmentsUrl(jar, base);
   const res = await manabaFetch(jar, fetchUrl);
   if (!res.ok) {
     throw new ManabaError(
-      `課題一覧取得失敗 (HTTP ${res.status})`,
+      `課題一覧取得失敗 (HTTP ${res.status}) url=${fetchUrl}`,
       "fetch",
     );
   }
