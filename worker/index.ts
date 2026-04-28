@@ -23,12 +23,28 @@ async function callJob(path: string, label: string): Promise<void> {
       return;
     }
     const json = (await res.json().catch(() => null)) as
-      | { sent?: number; failed?: number; skipped?: number; examined?: number }
+      | {
+          sent?: number;
+          failed?: number;
+          skipped?: number;
+          examined?: number;
+          deleted?: number;
+        }
       | null;
-    if (json && (json.sent || json.failed || json.skipped)) {
-      console.log(
-        `[worker] ${label}: examined=${json.examined ?? 0} sent=${json.sent ?? 0} failed=${json.failed ?? 0} skipped=${json.skipped ?? 0}`,
-      );
+    if (
+      json &&
+      (json.sent ||
+        json.failed ||
+        json.skipped ||
+        json.deleted)
+    ) {
+      const parts: string[] = [];
+      if (json.examined !== undefined) parts.push(`examined=${json.examined}`);
+      if (json.sent !== undefined) parts.push(`sent=${json.sent}`);
+      if (json.failed !== undefined) parts.push(`failed=${json.failed}`);
+      if (json.skipped !== undefined) parts.push(`skipped=${json.skipped}`);
+      if (json.deleted !== undefined) parts.push(`deleted=${json.deleted}`);
+      console.log(`[worker] ${label}: ${parts.join(" ")}`);
     }
   } catch (e) {
     console.error(`[worker] ${label} error:`, e instanceof Error ? e.message : e);
@@ -54,6 +70,16 @@ cron.schedule(
   "0 7 * * *",
   async () => {
     console.log("[worker] escalate fired");
+  },
+  { timezone: "Asia/Tokyo" },
+);
+
+// cleanup-past-tasks: 毎朝 04:00 JST。締切が過ぎた TASK を削除
+// (EVENT は対象外、行事や授業日由来の予定は残す)
+cron.schedule(
+  "0 4 * * *",
+  () => {
+    void callJob("/api/jobs/cleanup-past-tasks", "cleanup-past-tasks");
   },
   { timezone: "Asia/Tokyo" },
 );
