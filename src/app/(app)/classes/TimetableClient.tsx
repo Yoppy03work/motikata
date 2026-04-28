@@ -50,6 +50,8 @@ type EditTarget = {
 
 // 授業名から自動で割り当てるカード配色。
 // Tailwind が JIT で拾えるよう、すべて static な class 文字列で記述。
+// アクセシビリティ: 文字 vs 背景のコントラストが WCAG AA 4.5:1 を超えるよう、
+// 背景は -100 系(薄い)、文字は -800 / dark は -200 を使う。
 type Palette = {
   card: string; // bg + ring (light/dark)
   accent: string; // 左アクセントバー
@@ -58,64 +60,64 @@ type Palette = {
 };
 const PALETTES: Palette[] = [
   {
-    card: "bg-sky-50 ring-sky-200 dark:bg-sky-500/10 dark:ring-sky-500/30",
+    card: "bg-sky-100 ring-sky-300 dark:bg-sky-500/20 dark:ring-sky-500/40",
     accent: "bg-sky-500",
-    badge: "text-sky-700 dark:text-sky-300",
-    hover: "hover:bg-sky-100 dark:hover:bg-sky-500/20",
+    badge: "text-sky-800 dark:text-sky-200",
+    hover: "hover:bg-sky-200 dark:hover:bg-sky-500/30",
   },
   {
-    card: "bg-violet-50 ring-violet-200 dark:bg-violet-500/10 dark:ring-violet-500/30",
+    card: "bg-violet-100 ring-violet-300 dark:bg-violet-500/20 dark:ring-violet-500/40",
     accent: "bg-violet-500",
-    badge: "text-violet-700 dark:text-violet-300",
-    hover: "hover:bg-violet-100 dark:hover:bg-violet-500/20",
+    badge: "text-violet-800 dark:text-violet-200",
+    hover: "hover:bg-violet-200 dark:hover:bg-violet-500/30",
   },
   {
-    card: "bg-emerald-50 ring-emerald-200 dark:bg-emerald-500/10 dark:ring-emerald-500/30",
+    card: "bg-emerald-100 ring-emerald-300 dark:bg-emerald-500/20 dark:ring-emerald-500/40",
     accent: "bg-emerald-500",
-    badge: "text-emerald-700 dark:text-emerald-300",
-    hover: "hover:bg-emerald-100 dark:hover:bg-emerald-500/20",
+    badge: "text-emerald-800 dark:text-emerald-200",
+    hover: "hover:bg-emerald-200 dark:hover:bg-emerald-500/30",
   },
   {
-    card: "bg-amber-50 ring-amber-200 dark:bg-amber-500/10 dark:ring-amber-500/30",
+    card: "bg-amber-100 ring-amber-300 dark:bg-amber-500/20 dark:ring-amber-500/40",
     accent: "bg-amber-500",
-    badge: "text-amber-700 dark:text-amber-300",
-    hover: "hover:bg-amber-100 dark:hover:bg-amber-500/20",
+    badge: "text-amber-800 dark:text-amber-200",
+    hover: "hover:bg-amber-200 dark:hover:bg-amber-500/30",
   },
   {
-    card: "bg-rose-50 ring-rose-200 dark:bg-rose-500/10 dark:ring-rose-500/30",
+    card: "bg-rose-100 ring-rose-300 dark:bg-rose-500/20 dark:ring-rose-500/40",
     accent: "bg-rose-500",
-    badge: "text-rose-700 dark:text-rose-300",
-    hover: "hover:bg-rose-100 dark:hover:bg-rose-500/20",
+    badge: "text-rose-800 dark:text-rose-200",
+    hover: "hover:bg-rose-200 dark:hover:bg-rose-500/30",
   },
   {
-    card: "bg-pink-50 ring-pink-200 dark:bg-pink-500/10 dark:ring-pink-500/30",
+    card: "bg-pink-100 ring-pink-300 dark:bg-pink-500/20 dark:ring-pink-500/40",
     accent: "bg-pink-500",
-    badge: "text-pink-700 dark:text-pink-300",
-    hover: "hover:bg-pink-100 dark:hover:bg-pink-500/20",
+    badge: "text-pink-800 dark:text-pink-200",
+    hover: "hover:bg-pink-200 dark:hover:bg-pink-500/30",
   },
   {
-    card: "bg-indigo-50 ring-indigo-200 dark:bg-indigo-500/10 dark:ring-indigo-500/30",
+    card: "bg-indigo-100 ring-indigo-300 dark:bg-indigo-500/20 dark:ring-indigo-500/40",
     accent: "bg-indigo-500",
-    badge: "text-indigo-700 dark:text-indigo-300",
-    hover: "hover:bg-indigo-100 dark:hover:bg-indigo-500/20",
+    badge: "text-indigo-800 dark:text-indigo-200",
+    hover: "hover:bg-indigo-200 dark:hover:bg-indigo-500/30",
   },
   {
-    card: "bg-teal-50 ring-teal-200 dark:bg-teal-500/10 dark:ring-teal-500/30",
+    card: "bg-teal-100 ring-teal-300 dark:bg-teal-500/20 dark:ring-teal-500/40",
     accent: "bg-teal-500",
-    badge: "text-teal-700 dark:text-teal-300",
-    hover: "hover:bg-teal-100 dark:hover:bg-teal-500/20",
+    badge: "text-teal-800 dark:text-teal-200",
+    hover: "hover:bg-teal-200 dark:hover:bg-teal-500/30",
   },
   {
-    card: "bg-orange-50 ring-orange-200 dark:bg-orange-500/10 dark:ring-orange-500/30",
+    card: "bg-orange-100 ring-orange-300 dark:bg-orange-500/20 dark:ring-orange-500/40",
     accent: "bg-orange-500",
-    badge: "text-orange-700 dark:text-orange-300",
-    hover: "hover:bg-orange-100 dark:hover:bg-orange-500/20",
+    badge: "text-orange-800 dark:text-orange-200",
+    hover: "hover:bg-orange-200 dark:hover:bg-orange-500/30",
   },
   {
-    card: "bg-cyan-50 ring-cyan-200 dark:bg-cyan-500/10 dark:ring-cyan-500/30",
+    card: "bg-cyan-100 ring-cyan-300 dark:bg-cyan-500/20 dark:ring-cyan-500/40",
     accent: "bg-cyan-500",
-    badge: "text-cyan-700 dark:text-cyan-300",
-    hover: "hover:bg-cyan-100 dark:hover:bg-cyan-500/20",
+    badge: "text-cyan-800 dark:text-cyan-200",
+    hover: "hover:bg-cyan-200 dark:hover:bg-cyan-500/30",
   },
 ];
 
@@ -194,27 +196,29 @@ export function TimetableClient() {
       )}
 
       {/* 凡例 */}
-      <div className="mb-2 flex items-center gap-3 text-[11px] text-slate-500">
-        <span className="inline-flex items-center gap-1">
-          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-sky-200 dark:bg-sky-500/30" />
+      <div className="mb-2 flex flex-wrap items-center gap-3 text-xs text-slate-700 dark:text-slate-300">
+        <span className="inline-flex items-center gap-1.5">
+          <span className="inline-block h-3 w-3 rounded-sm bg-sky-200 dark:bg-sky-500/40" />
           授業
         </span>
-        <span className="inline-flex items-center gap-1">
-          <span className="inline-block h-2.5 w-2.5 rounded-sm border border-dashed border-slate-400 dark:border-slate-600" />
+        <span className="inline-flex items-center gap-1.5">
+          <span className="inline-block h-3 w-3 rounded-sm border border-dashed border-slate-500 dark:border-slate-500" />
           空き(タップで追加)
         </span>
-        {todayDow >= 1 && todayDow <= 6 && (
-          <span className="ml-auto text-sky-600 dark:text-sky-400">
-            ▼ 今日
-          </span>
-        )}
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
-        <table className="w-full border-separate border-spacing-0 text-xs">
+      <div
+        className="overflow-x-auto rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950"
+        role="grid"
+        aria-label="時間割"
+      >
+        <table className="w-full border-separate border-spacing-0 text-sm">
           <thead>
             <tr>
-              <th className="sticky left-0 z-10 w-14 border-b border-r border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 p-1.5 text-[10px] font-medium text-slate-500">
+              <th
+                scope="col"
+                className="sticky left-0 z-10 w-14 border-b border-r border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 p-2 text-xs font-semibold text-slate-700 dark:text-slate-300"
+              >
                 時限
               </th>
               {DAYS.map((d) => {
@@ -222,20 +226,12 @@ export function TimetableClient() {
                 return (
                   <th
                     key={d.value}
-                    className={`border-b border-slate-200 dark:border-slate-800 p-2 text-sm font-semibold ${
-                      isToday
-                        ? "bg-sky-100/70 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300"
-                        : "bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300"
-                    }`}
+                    scope="col"
+                    // aria-current は a11y のために残す(視覚的には他と同じ)
+                    aria-current={isToday ? "date" : undefined}
+                    className="border-b border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 p-2 text-base font-bold text-slate-800 dark:text-slate-200"
                   >
-                    <div className="flex items-center justify-center gap-1">
-                      {d.label}
-                      {isToday && (
-                        <span aria-hidden className="text-[10px]">
-                          ▼
-                        </span>
-                      )}
-                    </div>
+                    {d.label}
                   </th>
                 );
               })}
@@ -247,14 +243,15 @@ export function TimetableClient() {
               return (
                 <tr key={p.value}>
                   <th
-                    className={`sticky left-0 z-10 bg-slate-50 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 p-1.5 text-center align-top ${
+                    scope="row"
+                    className={`sticky left-0 z-10 bg-slate-100 dark:bg-slate-900 border-r border-slate-300 dark:border-slate-700 p-2 text-center align-top ${
                       isLastRow ? "" : "border-b"
                     }`}
                   >
-                    <div className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                    <div className="text-base font-bold text-slate-800 dark:text-slate-200 tabular-nums">
                       {p.value}
                     </div>
-                    <div className="mt-0.5 text-[10px] text-slate-500 tabular-nums">
+                    <div className="mt-0.5 text-xs font-medium text-slate-600 dark:text-slate-400 tabular-nums">
                       {p.start}
                     </div>
                   </th>
@@ -263,18 +260,25 @@ export function TimetableClient() {
                     if (occupied.has(key)) return null;
                     const it = startCells.get(key);
                     const span = it ? Math.max(1, it.endPeriod - it.period + 1) : 1;
-                    const isToday = d.value === todayDow;
                     const palette = it ? paletteFor(it.courseName) : null;
+                    const dayLabel = DAYS.find((x) => x.value === d.value)?.full ?? "";
+                    const periodLabel =
+                      it && it.endPeriod !== it.period
+                        ? `${it.period}-${it.endPeriod}限`
+                        : `${p.value}限`;
+                    const aria = it
+                      ? `${dayLabel} ${periodLabel} ${it.courseName}${it.classroom ? ` 教室 ${it.classroom}` : ""}${it.teacher ? ` 担当 ${it.teacher}` : ""}。タップで編集`
+                      : `${dayLabel} ${p.value}限 空き。タップで追加`;
                     return (
                       <td
                         key={d.value}
                         rowSpan={span}
-                        className={`p-1 align-top ${
-                          isToday ? "bg-sky-50/40 dark:bg-sky-500/[0.04]" : ""
-                        }`}
+                        role="gridcell"
+                        className="p-1 align-top"
                       >
                         <button
                           type="button"
+                          aria-label={aria}
                           onClick={() =>
                             setEditing({
                               dayOfWeek: d.value,
@@ -282,49 +286,53 @@ export function TimetableClient() {
                               existing: it ?? null,
                             })
                           }
-                          className={`relative flex h-full w-full overflow-hidden rounded-lg text-left transition active:scale-[0.98] ${
+                          className={`relative flex h-full w-full overflow-hidden rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-sky-600 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-slate-950 motion-safe:transition motion-safe:active:scale-[0.98] ${
                             it && palette
                               ? `${palette.card} ${palette.hover} ring-1 ring-inset shadow-sm hover:shadow-md`
-                              : "border border-dashed border-slate-200 dark:border-slate-800 hover:border-sky-400 dark:hover:border-sky-500/50 hover:bg-sky-50/50 dark:hover:bg-sky-500/5"
+                              : "border border-dashed border-slate-400 dark:border-slate-600 hover:border-sky-600 dark:hover:border-sky-400 hover:bg-sky-50 dark:hover:bg-sky-500/10"
                           }`}
-                          style={{ minHeight: `${span * 3.75}rem` }}
+                          style={{ minHeight: `${span * 4.25}rem` }}
                         >
                           {it && palette ? (
                             <>
                               {/* 左アクセントバー */}
                               <span
-                                className={`absolute left-0 top-0 h-full w-1 ${palette.accent}`}
+                                className={`absolute left-0 top-0 h-full w-1.5 ${palette.accent}`}
                                 aria-hidden
                               />
-                              <div className="flex w-full flex-col gap-0.5 p-2 pl-2.5">
-                                <div className={`flex items-baseline gap-1 text-[10px] font-semibold tabular-nums ${palette.badge}`}>
-                                  <span>
-                                    {it.period}
-                                    {it.endPeriod !== it.period ? `-${it.endPeriod}` : ""}限
+                              <div className="flex w-full flex-col gap-1 p-2.5 pl-3">
+                                <div
+                                  className={`flex items-baseline gap-1.5 text-xs font-bold tabular-nums ${palette.badge}`}
+                                >
+                                  <span>{periodLabel}</span>
+                                  <span aria-hidden className="text-slate-400 dark:text-slate-500">
+                                    ·
                                   </span>
-                                  <span className="text-slate-400 dark:text-slate-500">·</span>
-                                  <span className="text-slate-500 dark:text-slate-400">
+                                  <span className="font-semibold text-slate-700 dark:text-slate-300">
                                     {it.startTime}
                                   </span>
                                 </div>
-                                <div className="line-clamp-2 text-sm font-semibold leading-snug text-slate-900 dark:text-slate-100">
+                                <div className="line-clamp-2 text-base font-bold leading-snug text-slate-900 dark:text-slate-50">
                                   {it.courseName}
                                 </div>
                                 {it.classroom && (
-                                  <div className="mt-auto truncate pt-1 text-[11px] text-slate-700 dark:text-slate-300">
-                                    📍 {it.classroom}
+                                  <div className="mt-auto truncate pt-1 text-sm font-medium text-slate-800 dark:text-slate-200">
+                                    <span aria-hidden>📍 </span>
+                                    {it.classroom}
                                   </div>
                                 )}
                                 {it.teacher && (
-                                  <div className="truncate text-[10px] text-slate-500 dark:text-slate-400">
+                                  <div className="truncate text-xs font-medium text-slate-600 dark:text-slate-300">
                                     {it.teacher}
                                   </div>
                                 )}
                               </div>
                             </>
                           ) : (
-                            <div className="flex h-full w-full items-center justify-center text-base text-slate-300 dark:text-slate-700">
-                              +
+                            <div className="flex h-full w-full items-center justify-center">
+                              <span aria-hidden className="text-xl text-slate-400 dark:text-slate-500">
+                                +
+                              </span>
                             </div>
                           )}
                         </button>
