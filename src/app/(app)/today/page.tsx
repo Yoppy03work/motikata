@@ -30,18 +30,34 @@ function addDays(d: Date, n: number): Date {
   return x;
 }
 
+// 優先度の並び順(降順)。HIGH が一番上、LOW が下。
+const PRIORITY_RANK: Record<TodayItem["priority"], number> = {
+  HIGH: 0,
+  MID: 1,
+  LOW: 2,
+};
+
+function comparePriorityThenDue(a: TodayItem, b: TodayItem): number {
+  const pa = PRIORITY_RANK[a.priority] ?? 99;
+  const pb = PRIORITY_RANK[b.priority] ?? 99;
+  if (pa !== pb) return pa - pb;
+  return a.dueAt.localeCompare(b.dueAt);
+}
+
 function groupByAxis(items: TodayItem[]) {
   const open = items.filter((i) => i.status !== "DONE");
   return {
+    // 予定 (EVENT) は時刻順のまま(優先度の概念がイベントには弱い)
     events: open
       .filter((i) => i.itemType === "EVENT")
       .sort((a, b) => a.dueAt.localeCompare(b.dueAt)),
+    // 必須 / 任意のタスクは「優先度 → 締切」の順で並べる
     required: open
       .filter((i) => i.itemType === "TASK" && i.required)
-      .sort((a, b) => a.dueAt.localeCompare(b.dueAt)),
+      .sort(comparePriorityThenDue),
     optional: open
       .filter((i) => i.itemType === "TASK" && !i.required)
-      .sort((a, b) => a.dueAt.localeCompare(b.dueAt)),
+      .sort(comparePriorityThenDue),
     done: items.filter((i) => i.status === "DONE"),
   };
 }

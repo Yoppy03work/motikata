@@ -273,6 +273,11 @@ function DetailModal({
   isEvent: boolean;
   onClose: () => void;
 }) {
+  const router = useRouter();
+  const [priority, setPriority] = useState<TodayItem["priority"]>(item.priority);
+  const [savingPriority, setSavingPriority] = useState(false);
+  const [priorityError, setPriorityError] = useState<string | null>(null);
+
   // Esc で閉じる + 背景スクロール固定
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -285,6 +290,33 @@ function DetailModal({
       document.body.style.overflow = "";
     };
   }, [onClose]);
+
+  const updatePriority = async (next: TodayItem["priority"]) => {
+    if (next === priority) return;
+    setSavingPriority(true);
+    setPriorityError(null);
+    const prev = priority;
+    setPriority(next); // optimistic
+    try {
+      const res = await fetch(`/api/tasks/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ priority: next }),
+      });
+      if (!res.ok) {
+        setPriority(prev);
+        const body = await res.json().catch(() => ({}));
+        setPriorityError(
+          typeof body.error === "string" ? body.error : `更新失敗 (${res.status})`,
+        );
+        return;
+      }
+      // 並び順が変わるので RSC を refresh
+      router.refresh();
+    } finally {
+      setSavingPriority(false);
+    }
+  };
 
   return (
     <div
@@ -315,9 +347,9 @@ function DetailModal({
               </span>
               {!isEvent && (
                 <span
-                  className={`rounded-md border px-1.5 py-0.5 text-[10px] font-medium ${priorityTone[item.priority]}`}
+                  className={`rounded-md border px-1.5 py-0.5 text-[10px] font-medium ${priorityTone[priority]}`}
                 >
-                  優先度 {priorityLabel[item.priority]}
+                  優先度 {priorityLabel[priority]}
                 </span>
               )}
               <span className="rounded-md bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-600 dark:text-slate-400">
@@ -341,6 +373,42 @@ function DetailModal({
         </div>
 
         <div className="mt-3 flex-1 overflow-y-auto">
+          {!isEvent && (
+            <div className="mb-3">
+              <h3 className="mb-1 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                優先度
+              </h3>
+              <div className="flex gap-1.5">
+                {(["HIGH", "MID", "LOW"] as const).map((p) => {
+                  const active = priority === p;
+                  return (
+                    <button
+                      key={p}
+                      type="button"
+                      disabled={savingPriority}
+                      onClick={() => void updatePriority(p)}
+                      aria-pressed={active}
+                      className={`flex-1 rounded-md border px-2 py-1.5 text-xs font-medium transition disabled:opacity-50 ${
+                        active
+                          ? p === "HIGH"
+                            ? "border-rose-500 bg-rose-500/15 text-rose-700 dark:text-rose-300"
+                            : p === "MID"
+                              ? "border-amber-500 bg-amber-500/15 text-amber-700 dark:text-amber-300"
+                              : "border-slate-500 bg-slate-500/15 text-slate-700 dark:text-slate-300"
+                          : "border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:border-slate-400 dark:hover:border-slate-600"
+                      }`}
+                    >
+                      {p === "HIGH" ? "🔴 高" : p === "MID" ? "🟡 中" : "⚪ 低"}
+                    </button>
+                  );
+                })}
+              </div>
+              {priorityError && (
+                <p className="mt-1 text-[11px] text-rose-500">{priorityError}</p>
+              )}
+            </div>
+          )}
+
           {item.tags.length > 0 && (
             <div className="mb-3 flex flex-wrap gap-1">
               {item.tags.map((t) => (
