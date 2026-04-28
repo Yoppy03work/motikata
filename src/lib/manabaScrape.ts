@@ -212,37 +212,54 @@ function parseDueDate(text: string): Date | null {
   return null;
 }
 
+// CIT manaba(2026年4月確認)の課題一覧テーブル構造:
+//   table.stdlist
+//     <tr> ヘッダ: タイプ | タイトル | コース | 受付開始日時 | 受付終了日時 | 受付期間
+//     <tr> 各課題: 同じ並び (td 6 列)
+// タイプは "プロジェクト" / "アンケート" / "小テスト" / "レポート" / "ドリル" 等。
+// ドリルはユーザ要望で除外する。
+const SKIP_TYPES = new Set(["ドリル"]);
+
 function parseAssignmentsHtml(html: string, base: string): ManabaAssignment[] {
   const $ = cheerio.load(html);
   const out: ManabaAssignment[] = [];
-  // table.stdlist 構造を想定。各行: [区分, コース名, 課題, 期限, 状態]
-  // セレクタが合わない場合は generic table フォールバック
-  const rows = $("table.stdlist tr, table.stdlist-r tr, table tr").toArray();
-  for (const tr of rows) {
-    const tds = $(tr).find("td");
-    if (tds.length < 3) continue;
-    const cells = tds.toArray().map((td) => $(td).text().replace(/\s+/g, " ").trim());
-    // 期限らしきセル(日時パターンを含む)を探す
-    let dueIdx = -1;
-    for (let i = 0; i < cells.length; i++) {
-      if (/\d{1,2}[\/-]\d{1,2}/.test(cells[i]) || /\d{1,2}月\d{1,2}日/.test(cells[i])) {
-        dueIdx = i;
-        break;
-      }
-    }
-    if (dueIdx < 0) continue;
-    const dueAt = parseDueDate(cells[dueIdx]);
-    // 課題タイトルは a タグがあれば優先
-    const aEl = $(tr).find("a").first();
-    const title = (aEl.text() || cells[0] || "").trim();
-    if (!title) continue;
-    // コース名は別の列(往々にして dueIdx より前の最も近いセル)
-    const course =
-      cells.slice(0, dueIdx).reverse().find((c) => c && c !== title) ?? "";
-    const href = aEl.attr("href");
-    const url = href ? new URL(href, base).toString() : null;
+
+  $("table.stdlist tr").each((_, tr) => {
+    const tds = $(tr).find("td").toArray();
+    // ヘッダ行 (th のみ) や empty 行はスキップ
+    if (tds.length < 5) return;
+
+    const cellTexts = tds.map((td) => $(td).text().replace(/\s+/g, " ").trim());
+    const type = cellTexts[0];
+    const title = cellTexts[1];
+    const course = cellTexts[2];
+    // td[3] = 開始, td[4] = 終了(締切)
+    const endStr = cellTexts[4];
+
+    if (!title || !endStr) return;
+    if (SKIP_TYPES.has(type)) return;
+
+    const dueAt = parseDueDate(endStr);
+
+    // タイトルセル内のリンクから href を取り出す(課題詳細ページの URL)
+    const titleHref = $(tds[1]).find("a").first().attr("href");
+    const url = titleHref ? new URL(titleHref, `${base}/ct/`).toString() : null;
+
     out.push({ course, title, dueAt, url });
+  });
+
+  if (process.env.MANABA_DEBUG === "1") {
+    console.log(
+      `[manaba] parsed ${out.length} assignments:\n` +
+        out
+          .map(
+            (a, i) =>
+              `  ${i + 1}. course="${a.course}" title="${a.title}" due=${a.dueAt?.toISOString() ?? "null"}`,
+          )
+          .join("\n"),
+    );
   }
+
   return out;
 }
 
