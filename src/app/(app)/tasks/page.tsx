@@ -45,6 +45,67 @@ function sortItems(items: TodayItem[]): TodayItem[] {
   });
 }
 
+// 週ダッシュボード(完了率 / 優先度内訳 / 未完了累積)
+function WeekStats({
+  byDay,
+  dates,
+  total,
+  openTotal,
+}: {
+  byDay: Record<string, TodayItem[]>;
+  dates: string[];
+  total: number;
+  openTotal: number;
+}) {
+  const all = dates.flatMap((d) => byDay[d] ?? []);
+  const tasks = all.filter((i) => i.itemType === "TASK");
+  const done = tasks.filter((i) => i.status === "DONE").length;
+  const taskTotal = tasks.length;
+  const doneRate = taskTotal > 0 ? Math.round((done / taskTotal) * 100) : 0;
+  const requiredOpen = tasks.filter(
+    (i) => i.status === "OPEN" && i.required,
+  ).length;
+  const events = all.filter((i) => i.itemType === "EVENT").length;
+
+  return (
+    <div className="mb-4 grid grid-cols-2 gap-2">
+      <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 px-3 py-2.5">
+        <div className="text-[11px] text-slate-600 dark:text-slate-400">
+          完了率(タスク)
+        </div>
+        <div className="mt-0.5 flex items-baseline gap-1.5">
+          <span className="text-2xl font-bold tabular-nums text-sky-700 dark:text-sky-300">
+            {doneRate}
+          </span>
+          <span className="text-xs text-slate-500">% ({done}/{taskTotal})</span>
+        </div>
+      </div>
+      <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 px-3 py-2.5">
+        <div className="text-[11px] text-slate-600 dark:text-slate-400">未完了</div>
+        <div className="mt-0.5 flex items-baseline gap-1.5">
+          <span
+            className={`text-2xl font-bold tabular-nums ${
+              requiredOpen > 0
+                ? "text-rose-600 dark:text-rose-400"
+                : "text-slate-700 dark:text-slate-300"
+            }`}
+          >
+            {openTotal}
+          </span>
+          <span className="text-xs text-slate-500">
+            件 · 必須 {requiredOpen}
+          </span>
+        </div>
+      </div>
+      <div className="col-span-2 flex items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 px-3 py-1.5 text-[11px] text-slate-600 dark:text-slate-400">
+        <span>📅 予定 {events} 件</span>
+        <span>·</span>
+        <span>合計 {total} 件</span>
+      </div>
+    </div>
+  );
+}
+
 export default async function TasksPage({
   searchParams,
 }: {
@@ -75,11 +136,20 @@ export default async function TasksPage({
 
   return (
     <main className="px-4 pt-6 pb-8">
-      <header className="mb-3">
-        <h1 className="text-2xl font-semibold">今週のタスク</h1>
-        <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-400">
-          月〜日まで一覧。タップで詳細・完了。
-        </p>
+      <header className="mb-3 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-semibold">今週のタスク</h1>
+          <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-400">
+            月〜日まで一覧。タップで詳細・完了。
+          </p>
+        </div>
+        <a
+          href="/search"
+          aria-label="検索"
+          className="shrink-0 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 text-xs text-slate-700 dark:text-slate-300"
+        >
+          🔍 検索
+        </a>
       </header>
 
       <WeekNav
@@ -89,9 +159,8 @@ export default async function TasksPage({
         rangeLabel={rangeLabel}
       />
 
-      <div className="mb-4 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 px-3 py-2 text-xs text-slate-600 dark:text-slate-400">
-        合計 {total} 件 · 未完了 {openTotal} 件
-      </div>
+      <WeekStats byDay={byDay} dates={dates} total={total} openTotal={openTotal} />
+
 
       <div className="space-y-4">
         {dates.map((d, i) => {
