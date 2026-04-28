@@ -95,7 +95,7 @@ export function TodayItemCard({
 
   return (
     <article
-      className={`rounded-2xl border p-4 ${
+      className={`rounded-2xl border p-4 sm:p-5 ${
         done
           ? "border-slate-200 dark:border-slate-800 bg-slate-100/50 dark:bg-slate-900/50 opacity-60"
           : isEvent
@@ -137,11 +137,15 @@ export function TodayItemCard({
               </span>
             ))}
           </div>
-          <h3 className={`mt-1 truncate text-base font-semibold ${done ? "line-through" : ""}`}>
+          <h3
+            className={`mt-1.5 break-words text-base font-semibold leading-snug ${done ? "line-through" : ""}`}
+          >
             {item.title}
           </h3>
           {item.subtitle && (
-            <p className="mt-0.5 whitespace-pre-wrap text-xs text-slate-600 dark:text-slate-400">{item.subtitle}</p>
+            <p className="mt-1 whitespace-pre-wrap text-xs text-slate-600 dark:text-slate-400">
+              {item.subtitle}
+            </p>
           )}
         </div>
       </div>
