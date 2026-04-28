@@ -253,6 +253,10 @@ export function TodayItemCard({
         due={due}
         done={done}
         isEvent={isEvent}
+        pending={pending}
+        onComplete={complete}
+        onUncomplete={uncomplete}
+        onSnooze={snooze}
         onClose={() => setDetailOpen(false)}
       />
     )}
@@ -265,12 +269,20 @@ function DetailModal({
   due,
   done,
   isEvent,
+  pending,
+  onComplete,
+  onUncomplete,
+  onSnooze,
   onClose,
 }: {
   item: TodayItem;
   due: Date;
   done: boolean;
   isEvent: boolean;
+  pending: boolean;
+  onComplete: () => void;
+  onUncomplete: () => void;
+  onSnooze: () => void;
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -462,6 +474,48 @@ function DetailModal({
             <p className="text-xs text-slate-500">追加情報はありません</p>
           )}
         </div>
+
+        {/* アクションボタン: 明日の準備モードでも詳細モーダルからは完了させたい */}
+        {!isEvent && (
+          <div className="mt-3 flex gap-2 border-t border-slate-200 dark:border-slate-800 pt-3">
+            {!done ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onComplete();
+                    onClose();
+                  }}
+                  disabled={pending}
+                  className="flex-1 rounded-md bg-sky-500 py-2 text-sm font-semibold text-white disabled:opacity-50 hover:bg-sky-600"
+                >
+                  完了
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSnooze();
+                  }}
+                  disabled={pending}
+                  className="rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-700 dark:text-slate-300 disabled:opacity-50 hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  1時間後に
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  onUncomplete();
+                }}
+                disabled={pending}
+                className="flex-1 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 py-2 text-sm text-slate-700 dark:text-slate-300 disabled:opacity-50 hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                完了を取り消す
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
