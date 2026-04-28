@@ -36,7 +36,7 @@ export class ManabaError extends Error {
   }
 }
 
-const DEFAULT_BASE = "https://cm.it-chiba.ac.jp";
+const DEFAULT_BASE = "https://cit.manaba.jp";
 const UA =
   "Mozilla/5.0 (mochikata-reminder) Node fetch (Personal use)";
 
@@ -79,11 +79,28 @@ async function manabaFetch(
   headers.set("User-Agent", UA);
   headers.set("Accept", "text/html,application/xhtml+xml");
   if (jar.size > 0) headers.set("Cookie", jarHeader(jar));
-  const res = await fetch(url, {
-    ...init,
-    headers,
-    redirect: "manual", // Set-Cookie を Cookie jar に取り込んでから手動でリダイレクト
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      ...init,
+      headers,
+      redirect: "manual", // Set-Cookie を Cookie jar に取り込んでから手動でリダイレクト
+    });
+  } catch (e) {
+    // fetch が throw する場合(DNS / TCP / TLS / 接続不可)は
+    // 詳細を抽出してログ可能なエラーに変換する
+    const cause = (e as { cause?: unknown }).cause;
+    const causeMsg =
+      cause instanceof Error
+        ? `${cause.name}: ${cause.message}`
+        : cause
+          ? String(cause)
+          : "unknown";
+    throw new ManabaError(
+      `${e instanceof Error ? e.message : "fetch failed"} url=${url} cause=${causeMsg}`,
+      "fetch",
+    );
+  }
   ingestSetCookie(jar, res.headers);
   if (res.status >= 300 && res.status < 400) {
     const loc = res.headers.get("location");
@@ -101,9 +118,9 @@ async function login(
   username: string,
   password: string,
 ): Promise<void> {
-  const loginUrl = `${base}/ct/login_user`;
-  // 一部 manaba は GET ログインページで CSRF token を取得 → POST 必須。
-  // 取れたら隠し input をパースして含める。
+  // CIT manaba: GET /ct/login でフォーム取得 → POST /ct/login で
+  // userid + password + 隠しフィールド(SessionValue1, SessionValue, manaba-form)
+  const loginUrl = `${base}/ct/login`;
   const getRes = await manabaFetch(jar, loginUrl);
   if (!getRes.ok) {
     throw new ManabaError(
@@ -113,7 +130,10 @@ async function login(
   }
   const $ = cheerio.load(await getRes.text());
   const form = $("form").first();
-  const action = form.attr("action") || "/ct/login_user";
+  if (form.length === 0) {
+    throw new ManabaError("ログインフォームが見つかりません", "login");
+  }
+  const action = form.attr("action") || "login";
   const postUrl = new URL(action, loginUrl).toString();
   const params = new URLSearchParams();
   $("input[type='hidden']", form).each((_, el) => {
@@ -121,15 +141,16 @@ async function login(
     const value = $(el).attr("value") ?? "";
     if (name) params.append(name, value);
   });
-  // フォーム名は 'login' / 'password' が標準。互換のため id 系も併記
-  params.set("login", username);
-  params.set("usr_id", username);
+  // CIT manaba のフィールド名は userid / password
+  params.set("userid", username);
   params.set("password", password);
-  params.set("usr_pwd", password);
 
   const postRes = await manabaFetch(jar, postUrl, {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Referer: loginUrl,
+    },
     body: params.toString(),
   });
 
@@ -140,23 +161,17 @@ async function login(
     );
   }
   const html = await postRes.text();
-  // 失敗判定: ログインフォームのまま / 「ID またはパスワード」エラー文言
-  if (
-    html.includes("ID またはパスワード") ||
-    html.includes("ログインに失敗") ||
-    html.includes("login_user")
-  ) {
-    // 一部 manaba ではログイン成功後もホーム HTML に "login_user" 文字列があるため、
-    // セッション cookie の存在も確認する
-    const hasSession = [...jar.keys()].some((k) =>
-      /sess|JSESSION|jsessionid|usr/i.test(k),
+  // ログイン成功すると / (ホーム) へリダイレクトされ、レスポンスにログインフォームは無い
+  // 失敗時は再度ログインフォームが表示される(name=password の input がある)
+  const $$ = cheerio.load(html);
+  const stillHasLoginForm = $$("input[type='password'][name='password']").length > 0;
+  if (stillHasLoginForm) {
+    // エラーメッセージを抽出してログ可能な文字列にする
+    const errMsg = $$(".errorblock, .login-error, .alert").first().text().trim();
+    throw new ManabaError(
+      `ログイン失敗${errMsg ? `: ${errMsg.slice(0, 120)}` : ": ID/パスワードが違うか、フォーム構造が変わった可能性"}`,
+      "login",
     );
-    if (!hasSession) {
-      throw new ManabaError(
-        "ログイン失敗: ID またはパスワードが正しくない可能性があります",
-        "login",
-      );
-    }
   }
 }
 
