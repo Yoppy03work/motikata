@@ -217,7 +217,7 @@ export function TimetableClient() {
             <tr>
               <th
                 scope="col"
-                className="sticky left-0 z-10 w-12 border-b border-r border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 p-1 text-[11px] font-semibold text-slate-700 dark:text-slate-300"
+                className="sticky left-0 z-10 w-14 border-b border-r border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 p-1 text-xs font-semibold text-slate-700 dark:text-slate-300"
               >
                 時限
               </th>
@@ -248,10 +248,10 @@ export function TimetableClient() {
                       isLastRow ? "" : "border-b"
                     }`}
                   >
-                    <div className="text-sm font-bold text-slate-800 dark:text-slate-200 tabular-nums leading-tight">
+                    <div className="text-base font-bold text-slate-800 dark:text-slate-200 tabular-nums leading-tight">
                       {p.value}
                     </div>
-                    <div className="text-[10px] font-medium text-slate-600 dark:text-slate-400 tabular-nums leading-tight">
+                    <div className="text-xs font-medium text-slate-600 dark:text-slate-400 tabular-nums leading-tight">
                       {p.start}
                     </div>
                   </th>
@@ -291,7 +291,7 @@ export function TimetableClient() {
                               ? `${palette.card} ${palette.hover} ring-1 ring-inset shadow-sm hover:shadow-md`
                               : "border border-dashed border-slate-400 dark:border-slate-600 hover:border-sky-600 dark:hover:border-sky-400 hover:bg-sky-50 dark:hover:bg-sky-500/10"
                           }`}
-                          style={{ minHeight: `${span * 3}rem` }}
+                          style={{ minHeight: `${span * 3.5}rem` }}
                         >
                           {it && palette ? (
                             <>
@@ -302,7 +302,7 @@ export function TimetableClient() {
                               />
                               <div className="flex w-full flex-col gap-0.5 px-2 py-1.5 pl-2.5">
                                 <div
-                                  className={`flex items-baseline gap-1 text-[11px] font-bold tabular-nums ${palette.badge}`}
+                                  className={`flex items-baseline gap-1 text-xs font-bold tabular-nums ${palette.badge}`}
                                 >
                                   <span>{periodLabel}</span>
                                   <span aria-hidden className="text-slate-400 dark:text-slate-500">
@@ -312,17 +312,17 @@ export function TimetableClient() {
                                     {it.startTime}〜{it.endTime}
                                   </span>
                                 </div>
-                                <div className="line-clamp-2 text-[15px] font-bold leading-tight text-slate-900 dark:text-slate-50">
+                                <div className="line-clamp-2 text-base font-bold leading-tight text-slate-900 dark:text-slate-50">
                                   {it.courseName}
                                 </div>
                                 {it.classroom && (
-                                  <div className="mt-auto truncate text-xs font-medium text-slate-800 dark:text-slate-200">
+                                  <div className="mt-auto truncate text-sm font-medium text-slate-800 dark:text-slate-200">
                                     <span aria-hidden>📍 </span>
                                     {it.classroom}
                                   </div>
                                 )}
                                 {it.teacher && (
-                                  <div className="truncate text-[11px] font-medium text-slate-600 dark:text-slate-300">
+                                  <div className="truncate text-xs font-medium text-slate-600 dark:text-slate-300">
                                     {it.teacher}
                                   </div>
                                 )}
@@ -330,7 +330,7 @@ export function TimetableClient() {
                             </>
                           ) : (
                             <div className="flex h-full w-full items-center justify-center">
-                              <span aria-hidden className="text-base text-slate-400 dark:text-slate-500">
+                              <span aria-hidden className="text-lg text-slate-400 dark:text-slate-500">
                                 +
                               </span>
                             </div>
