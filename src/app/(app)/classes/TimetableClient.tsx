@@ -217,7 +217,7 @@ export function TimetableClient() {
             <tr>
               <th
                 scope="col"
-                className="sticky left-0 z-10 w-14 border-b border-r border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 p-2 text-xs font-semibold text-slate-700 dark:text-slate-300"
+                className="sticky left-0 z-10 w-20 border-b border-r border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 p-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300"
               >
                 時限
               </th>
@@ -244,15 +244,15 @@ export function TimetableClient() {
                 <tr key={p.value}>
                   <th
                     scope="row"
-                    className={`sticky left-0 z-10 bg-slate-100 dark:bg-slate-900 border-r border-slate-300 dark:border-slate-700 p-2 text-center align-top ${
+                    className={`sticky left-0 z-10 bg-slate-100 dark:bg-slate-900 border-r border-slate-300 dark:border-slate-700 px-1.5 py-1 text-center align-middle ${
                       isLastRow ? "" : "border-b"
                     }`}
                   >
-                    <div className="text-base font-bold text-slate-800 dark:text-slate-200 tabular-nums">
+                    <div className="text-sm font-bold text-slate-800 dark:text-slate-200 tabular-nums leading-tight">
                       {p.value}
                     </div>
-                    <div className="mt-0.5 text-xs font-medium text-slate-600 dark:text-slate-400 tabular-nums">
-                      {p.start}
+                    <div className="text-[10px] font-medium text-slate-600 dark:text-slate-400 tabular-nums leading-tight">
+                      {p.start}〜{p.end}
                     </div>
                   </th>
                   {DAYS.map((d) => {
@@ -286,43 +286,43 @@ export function TimetableClient() {
                               existing: it ?? null,
                             })
                           }
-                          className={`relative flex h-full w-full overflow-hidden rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-sky-600 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-slate-950 motion-safe:transition motion-safe:active:scale-[0.98] ${
+                          className={`relative flex h-full w-full overflow-hidden rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-sky-600 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-slate-950 motion-safe:transition motion-safe:active:scale-[0.98] ${
                             it && palette
                               ? `${palette.card} ${palette.hover} ring-1 ring-inset shadow-sm hover:shadow-md`
                               : "border border-dashed border-slate-400 dark:border-slate-600 hover:border-sky-600 dark:hover:border-sky-400 hover:bg-sky-50 dark:hover:bg-sky-500/10"
                           }`}
-                          style={{ minHeight: `${span * 4.25}rem` }}
+                          style={{ minHeight: `${span * 3}rem` }}
                         >
                           {it && palette ? (
                             <>
                               {/* 左アクセントバー */}
                               <span
-                                className={`absolute left-0 top-0 h-full w-1.5 ${palette.accent}`}
+                                className={`absolute left-0 top-0 h-full w-1 ${palette.accent}`}
                                 aria-hidden
                               />
-                              <div className="flex w-full flex-col gap-1 p-2.5 pl-3">
+                              <div className="flex w-full flex-col gap-0.5 px-2 py-1.5 pl-2.5">
                                 <div
-                                  className={`flex items-baseline gap-1.5 text-xs font-bold tabular-nums ${palette.badge}`}
+                                  className={`flex items-baseline gap-1 text-[11px] font-bold tabular-nums ${palette.badge}`}
                                 >
                                   <span>{periodLabel}</span>
                                   <span aria-hidden className="text-slate-400 dark:text-slate-500">
                                     ·
                                   </span>
                                   <span className="font-semibold text-slate-700 dark:text-slate-300">
-                                    {it.startTime}
+                                    {it.startTime}〜{it.endTime}
                                   </span>
                                 </div>
-                                <div className="line-clamp-2 text-base font-bold leading-snug text-slate-900 dark:text-slate-50">
+                                <div className="line-clamp-2 text-[15px] font-bold leading-tight text-slate-900 dark:text-slate-50">
                                   {it.courseName}
                                 </div>
                                 {it.classroom && (
-                                  <div className="mt-auto truncate pt-1 text-sm font-medium text-slate-800 dark:text-slate-200">
+                                  <div className="mt-auto truncate text-xs font-medium text-slate-800 dark:text-slate-200">
                                     <span aria-hidden>📍 </span>
                                     {it.classroom}
                                   </div>
                                 )}
                                 {it.teacher && (
-                                  <div className="truncate text-xs font-medium text-slate-600 dark:text-slate-300">
+                                  <div className="truncate text-[11px] font-medium text-slate-600 dark:text-slate-300">
                                     {it.teacher}
                                   </div>
                                 )}
@@ -330,7 +330,7 @@ export function TimetableClient() {
                             </>
                           ) : (
                             <div className="flex h-full w-full items-center justify-center">
-                              <span aria-hidden className="text-xl text-slate-400 dark:text-slate-500">
+                              <span aria-hidden className="text-base text-slate-400 dark:text-slate-500">
                                 +
                               </span>
                             </div>
