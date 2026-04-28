@@ -240,7 +240,9 @@ function parseAssignmentsHtml(html: string, base: string): ManabaAssignment[] {
 
 // 課題一覧ページの候補 URL。manaba のバージョンによって path が変わるため、
 // 順に試して 200 を返す最初のものを採用する。
+// CIT manaba は /ct/home_library_query が実体(2026年4月確認)。
 const ASSIGNMENT_URL_CANDIDATES = [
+  "/ct/home_library_query",
   "/ct/home_summary_published_report",
   "/ct/home_published_report",
   "/ct/page_published_report",
@@ -249,29 +251,28 @@ const ASSIGNMENT_URL_CANDIDATES = [
 ];
 
 async function findAssignmentsUrl(jar: CookieJar, base: string): Promise<string> {
-  // まずホームを取得して 「課題」 系のリンクを探す
+  // 既知の候補 URL を順に試行。最初に 200 を返したものを採用。
+  for (const path of ASSIGNMENT_URL_CANDIDATES) {
+    const url = `${base}${path}`;
+    const res = await manabaFetch(jar, url);
+    if (res.ok) return url;
+  }
+  // どれも当たらなければ /ct/home の HTML から動的にリンクを探す
   const homeRes = await manabaFetch(jar, `${base}/ct/home`);
   if (homeRes.ok) {
     const $ = cheerio.load(await homeRes.text());
-    // テキスト or タイトルに「課題」を含むリンクを優先
     let bestHref: string | null = null;
     $("a[href]").each((_, el) => {
       const href = $(el).attr("href") || "";
       const text = $(el).text();
       if (
-        (text.includes("課題") || /report|published/i.test(href)) &&
-        !/discuss|news|grade|login/i.test(href)
+        (text.includes("課題") || /report|published|library|query/i.test(href)) &&
+        !/discuss|news|grade|login|logout/i.test(href)
       ) {
         if (!bestHref) bestHref = href;
       }
     });
     if (bestHref) return new URL(bestHref, `${base}/ct/`).toString();
-  }
-  // 見つからない場合は候補を順試行
-  for (const path of ASSIGNMENT_URL_CANDIDATES) {
-    const url = `${base}${path}`;
-    const res = await manabaFetch(jar, url);
-    if (res.ok) return url;
   }
   throw new ManabaError(
     `課題一覧 URL が特定できませんでした(候補すべて 404 / unreachable)`,
