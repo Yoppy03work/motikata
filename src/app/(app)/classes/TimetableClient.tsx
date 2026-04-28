@@ -217,7 +217,7 @@ export function TimetableClient() {
             <tr>
               <th
                 scope="col"
-                className="sticky left-0 z-10 w-20 border-b border-r border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 p-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300"
+                className="sticky left-0 z-10 w-12 border-b border-r border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 p-1 text-[11px] font-semibold text-slate-700 dark:text-slate-300"
               >
                 時限
               </th>
@@ -244,7 +244,7 @@ export function TimetableClient() {
                 <tr key={p.value}>
                   <th
                     scope="row"
-                    className={`sticky left-0 z-10 bg-slate-100 dark:bg-slate-900 border-r border-slate-300 dark:border-slate-700 px-1.5 py-1 text-center align-middle ${
+                    className={`sticky left-0 z-10 bg-slate-100 dark:bg-slate-900 border-r border-slate-300 dark:border-slate-700 px-1 py-1 text-center align-middle ${
                       isLastRow ? "" : "border-b"
                     }`}
                   >
@@ -252,7 +252,7 @@ export function TimetableClient() {
                       {p.value}
                     </div>
                     <div className="text-[10px] font-medium text-slate-600 dark:text-slate-400 tabular-nums leading-tight">
-                      {p.start}〜{p.end}
+                      {p.start}
                     </div>
                   </th>
                   {DAYS.map((d) => {
