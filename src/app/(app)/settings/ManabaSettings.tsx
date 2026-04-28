@@ -98,7 +98,10 @@ export function ManabaSettings() {
         return;
       }
       setMessage(
-        `同期完了: 取得 ${body.fetched ?? 0} / 期限あり ${body.withDue ?? 0} / 追加 ${body.inserted ?? 0} / 更新 ${body.updated ?? 0}`,
+        `同期完了: 取得 ${body.fetched ?? 0} / 取込対象 ${body.target ?? 0} / 追加 ${body.inserted ?? 0} / 更新 ${body.updated ?? 0}` +
+          ((body.pastSkipped ?? 0) > 0
+            ? ` / 過去 ${body.pastSkipped} 件は除外`
+            : ""),
       );
       await refresh();
     } finally {

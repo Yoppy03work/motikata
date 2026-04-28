@@ -67,13 +67,18 @@ export async function POST() {
     return NextResponse.json({ error: msg }, { status: 502 });
   }
 
-  // 期限なしの課題はスキップ(リマインダーが立てられないので)
-  const withDue = assignments.filter((a) => a.dueAt);
+  // 期限がある + まだ未来のものだけを取り込み対象にする。
+  // 過去課題はノイズになるだけ(完了済みは manaba 側で消えるが、
+  // 未提出のまま期限超過した課題も持ち越さない方針)
+  const now = new Date();
+  const target = assignments.filter((a) => a.dueAt && a.dueAt > now);
+  const pastSkipped = assignments.filter((a) => a.dueAt && a.dueAt <= now).length;
+  const noDueSkipped = assignments.filter((a) => !a.dueAt).length;
 
   let inserted = 0;
   let updated = 0;
   let skipped = 0;
-  for (const a of withDue) {
+  for (const a of target) {
     const externalId = externalIdOf(a);
     const existing = await prisma.taskInstance.findFirst({
       where: { source: "ACADEMIC", sourceExternalId: externalId },
@@ -118,7 +123,9 @@ export async function POST() {
   return NextResponse.json({
     ok: true,
     fetched: assignments.length,
-    withDue: withDue.length,
+    target: target.length,
+    pastSkipped,
+    noDueSkipped,
     inserted,
     updated,
     skipped,
