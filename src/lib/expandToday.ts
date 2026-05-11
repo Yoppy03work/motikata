@@ -14,6 +14,7 @@
 //      - ChecklistTemplate (ownerType=CLASS, ownerId=schedule.id) を
 //        TaskInstanceCheck にコピー(持ち物リスト)
 
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { weekStartOf as _w, isValidYmd as _v } from "@/lib/week";
 void _w;
@@ -120,29 +121,44 @@ export async function expandToday(targetYmd?: string): Promise<ExpandResult> {
     const titleSuffix = s.classroom ? ` @${s.classroom}` : "";
     const checks = checkByOwner.get(s.id) ?? [];
 
-    await prisma.taskInstance.create({
-      data: {
-        title: `${s.courseName}${titleSuffix}`,
-        notes: s.teacher ? `担当: ${s.teacher}` : null,
-        dueAt,
-        itemType: "EVENT",
-        required: false,
-        priority: "MID",
-        status: "OPEN",
-        source: "CLASS",
-        sourceExternalId: externalId,
-        checklist:
-          checks.length > 0
-            ? {
-                create: checks.map((c, i) => ({
-                  label: c.label,
-                  orderIdx: c.orderIdx ?? i,
-                })),
-              }
-            : undefined,
-      },
-    });
-    inserted++;
+    try {
+      await prisma.taskInstance.create({
+        data: {
+          title: `${s.courseName}${titleSuffix}`,
+          notes: s.teacher ? `担当: ${s.teacher}` : null,
+          dueAt,
+          itemType: "EVENT",
+          required: false,
+          priority: "MID",
+          status: "OPEN",
+          source: "CLASS",
+          sourceExternalId: externalId,
+          checklist:
+            checks.length > 0
+              ? {
+                  create: checks.map((c, i) => ({
+                    label: c.label,
+                    orderIdx: c.orderIdx ?? i,
+                  })),
+                }
+              : undefined,
+        },
+      });
+      inserted++;
+    } catch (e) {
+      // (source, sourceExternalId) は @@unique なので、並行 expandToday が
+      // 同時に走ると後発が P2002(unique violation)で落ちる。
+      // 重複は仕様上「既に作られているのでスキップ」と等価なので、
+      // 全体ジョブを 500 で止めず skipped に集計して続行する。
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === "P2002"
+      ) {
+        skipped++;
+        continue;
+      }
+      throw e;
+    }
   }
 
   return {

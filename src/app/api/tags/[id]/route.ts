@@ -3,6 +3,7 @@
 
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { requireAuthApi } from "@/lib/authGuard";
 
@@ -37,11 +38,16 @@ export async function PATCH(
     const tag = await prisma.tag.update({ where: { id }, data });
     return NextResponse.json({ ok: true, tag });
   } catch (e: unknown) {
-    if ((e as { code?: string }).code === "P2002") {
-      return NextResponse.json(
-        { error: "同じ名前のタグが既に存在します" },
-        { status: 409 },
-      );
+    if (e instanceof Prisma.PrismaClientKnownRequestError) {
+      if (e.code === "P2002") {
+        return NextResponse.json(
+          { error: "同じ名前のタグが既に存在します" },
+          { status: 409 },
+        );
+      }
+      if (e.code === "P2025") {
+        return NextResponse.json({ error: "not found" }, { status: 404 });
+      }
     }
     return NextResponse.json({ error: "更新失敗" }, { status: 500 });
   }
@@ -58,6 +64,16 @@ export async function DELETE(
   if (!Number.isInteger(id)) {
     return NextResponse.json({ error: "invalid id" }, { status: 400 });
   }
-  await prisma.tag.delete({ where: { id } });
-  return NextResponse.json({ ok: true });
+  try {
+    await prisma.tag.delete({ where: { id } });
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    if (
+      e instanceof Prisma.PrismaClientKnownRequestError &&
+      e.code === "P2025"
+    ) {
+      return NextResponse.json({ error: "not found" }, { status: 404 });
+    }
+    throw e;
+  }
 }
