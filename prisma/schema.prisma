@@ -175,6 +175,10 @@ model TaskInstance {
   updatedAt        DateTime            @updatedAt
 
   @@unique([templateId, dueAt], name: "unique_template_due")
+  // 外部ソース(manaba/CIT等)からの取込で重複行を作らないための一意制約。
+  // (source, sourceExternalId) ペアでユニーク。MANUAL タスクは
+  // sourceExternalId が NULL なので Postgres の NULL=distinct 規約で複数OK。
+  @@unique([source, sourceExternalId], name: "unique_source_external")
   @@index([status, dueAt])
 }
 

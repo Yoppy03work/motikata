@@ -9,6 +9,8 @@
 //      - DONE / SKIPPED の既存タスクはそのまま
 //   4. lastSyncedAt / lastError を書き戻し
 
+import { createHash } from "node:crypto";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { decryptManabaPassword } from "@/lib/manabaCrypto";
 import {
@@ -36,7 +38,13 @@ export type ManabaSyncResult =
 
 function externalIdOf(a: ManabaAssignment): string {
   const due = a.dueAt ? a.dueAt.toISOString() : "no-due";
-  return `manaba:${a.course}:${a.title}:${due}`.slice(0, 200);
+  const natural = `manaba:${a.course}:${a.title}:${due}`;
+  // 200 文字以内ならそのまま使う(後方互換: 既存の externalId と一致するため)。
+  // それを超える場合だけ SHA-256 で安定的に短縮する。
+  // truncate(slice 200) は別アサインメントが先頭一致で衝突するので NG。
+  if (natural.length <= 200) return natural;
+  const hash = createHash("sha256").update(natural).digest("hex");
+  return `manaba:hash:${hash}`;
 }
 
 export async function runManabaSync(): Promise<ManabaSyncResult> {
@@ -89,37 +97,68 @@ export async function runManabaSync(): Promise<ManabaSyncResult> {
   let skipped = 0;
   for (const a of target) {
     const externalId = externalIdOf(a);
-    const existing = await prisma.taskInstance.findFirst({
-      where: { source: "ACADEMIC", sourceExternalId: externalId },
+    const title = `${a.course} / ${a.title}`;
+    const notes = a.url ? `manaba: ${a.url}` : null;
+    // 並行 run(cron + 手動 / リトライ重複)で同じ assignment を2回 create
+    // しないよう、(source, sourceExternalId) の DB ユニーク制約に頼って upsert。
+    // findFirst + create の non-atomic だと両方が「存在しない」と判定して両方
+    // insert → 重複行になる。
+    // ユーザーが手で DONE/SKIPPED に切替えたタスクは上書きしない仕様のため、
+    // 単純な prisma.upsert は使わず:
+    //   - まず status=OPEN の行に updateMany を試みる(原子的に1件更新できれば終了)
+    //   - 更新なしなら findUnique。 DONE/SKIPPED が存在すれば skipped。
+    //   - 存在しなければ create を試み、P2002(unique violation)が出たら
+    //     並行 run が先に insert したと見なして skipped 扱い。
+    const updRes = await prisma.taskInstance.updateMany({
+      where: {
+        source: "ACADEMIC",
+        sourceExternalId: externalId,
+        status: "OPEN",
+      },
+      data: { title, dueAt: a.dueAt!, notes },
+    });
+    if (updRes.count > 0) {
+      updated++;
+      continue;
+    }
+    const existing = await prisma.taskInstance.findUnique({
+      where: {
+        unique_source_external: {
+          source: "ACADEMIC",
+          sourceExternalId: externalId,
+        },
+      },
+      select: { id: true, status: true },
     });
     if (existing) {
-      if (existing.status !== "OPEN") {
-        skipped++;
-        continue;
-      }
-      await prisma.taskInstance.update({
-        where: { id: existing.id },
-        data: {
-          title: `${a.course} / ${a.title}`,
-          dueAt: a.dueAt!,
-          notes: a.url ? `manaba: ${a.url}` : null,
-        },
-      });
-      updated++;
-    } else {
+      // status は DONE / SKIPPED(updateMany が拾わなかった)
+      skipped++;
+      continue;
+    }
+    try {
       await prisma.taskInstance.create({
         data: {
-          title: `${a.course} / ${a.title}`,
+          title,
           dueAt: a.dueAt!,
           itemType: "TASK",
           required: true,
           priority: "MID",
           source: "ACADEMIC",
           sourceExternalId: externalId,
-          notes: a.url ? `manaba: ${a.url}` : null,
+          notes,
         },
       });
       inserted++;
+    } catch (e) {
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === "P2002"
+      ) {
+        // 並行 run が先に insert した → 何もしない
+        skipped++;
+      } else {
+        throw e;
+      }
     }
   }
 
