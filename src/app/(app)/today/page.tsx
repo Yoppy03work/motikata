@@ -43,7 +43,9 @@ function comparePriorityThenDue(a: TodayItem, b: TodayItem): number {
 }
 
 function groupByAxis(items: TodayItem[]) {
-  const open = items.filter((i) => i.status !== "DONE");
+  // 「open」(現役)は status === "OPEN" のみ。SKIPPED は終わった扱い。
+  // (DayDetailSheet / 月インジケータ / 週ビューの未完了カウントと挙動を揃える)
+  const open = items.filter((i) => i.status === "OPEN");
   return {
     // 予定 (EVENT) は時刻順のまま(優先度の概念がイベントには弱い)
     events: open
@@ -66,8 +68,13 @@ export default async function TodayPage({
   searchParams: Promise<{ date?: string }>;
 }) {
   const { date } = await searchParams;
-  const nowJst = toZonedTime(new Date(), APP_TZ);
-  const todayYmd = ymdJst(new Date());
+  // 時刻比較・経過分の算出には実時間(UTC epoch)をそのまま使う。
+  // 旧コード: toZonedTime(new Date(), APP_TZ).getTime() は wall-clock 表示用に
+  //          内部 epoch を +9h ずらすので、dueAt (本物の UTC epoch) との比較が
+  //          UTC サーバ上で 9 時間ズレ、「次の予定」が消えたり誤った残時間を出す。
+  // toZonedTime は format() に渡すときの局所表示用にだけ使うべきもの。
+  const now = new Date();
+  const todayYmd = ymdJst(now);
 
   const viewYmd = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : todayYmd;
   const viewDate = parseYmd(viewYmd);
@@ -93,28 +100,26 @@ export default async function TodayPage({
 
   const PrimarySection = (
     <DayBlock
-      headerIcon={isToday ? <span aria-hidden>☀</span> : <CalendarIcon width={18} height={18} />}
+      headerIcon={isToday ? null : <CalendarIcon width={18} height={18} />}
       headerTitle={isToday ? "今日" : primaryLabel}
       headerCaption={isToday ? primaryLabel : ""}
       groups={primary}
-      accent="sky"
     />
   );
 
   // 「次の予定」Quick Answer: 今日を見ているときだけ、現在時刻以降の最初のOPENを抽出
   const nextUp = isToday
     ? primaryItems
-        .filter((i) => i.status === "OPEN" && new Date(i.dueAt).getTime() > nowJst.getTime())
+        .filter((i) => i.status === "OPEN" && new Date(i.dueAt).getTime() > now.getTime())
         .sort((a, b) => a.dueAt.localeCompare(b.dueAt))[0]
     : null;
 
   const TomorrowSection = tomorrow && (
     <DayBlock
-      headerIcon={<span aria-hidden>🌙</span>}
+      headerIcon={null}
       headerTitle="明日の準備"
       headerCaption={tomorrowLabel}
       groups={tomorrow}
-      accent="violet"
       prepareMode
     />
   );
@@ -147,7 +152,7 @@ export default async function TodayPage({
         indicators={indicators}
       />
 
-      {nextUp && <NextUpCard item={nextUp} now={nowJst} />}
+      {nextUp && <NextUpCard item={nextUp} now={now} />}
 
       <div className="mt-5 space-y-10">
         {PrimarySection}
@@ -163,24 +168,24 @@ function DayBlock({
   headerTitle,
   headerCaption,
   groups,
-  accent,
   prepareMode = false,
 }: {
-  headerIcon: React.ReactNode;
+  headerIcon: React.ReactNode | null;
   headerTitle: string;
   headerCaption: string;
   groups: ReturnType<typeof groupByAxis>;
-  accent: "sky" | "violet";
   prepareMode?: boolean;
 }) {
-  const color = accent === "violet" ? "text-violet-300" : "text-sky-300";
+  const color = "text-sky-300";
   const empty =
     groups.events.length === 0 && groups.required.length === 0 && groups.optional.length === 0;
 
   return (
     <section>
       <div className="mb-3 flex items-center gap-2">
-        <span className={`inline-flex items-center ${color}`}>{headerIcon}</span>
+        {headerIcon && (
+          <span className={`inline-flex items-center ${color}`}>{headerIcon}</span>
+        )}
         <h2 className="text-lg font-semibold">{headerTitle}</h2>
         {headerCaption && <span className="ml-1 text-xs text-slate-500">{headerCaption}</span>}
       </div>
@@ -192,14 +197,14 @@ function DayBlock({
       )}
 
       {groups.events.length > 0 && (
-        <Group label="📅 予定" items={groups.events} prepareMode={prepareMode} />
+        <Group label="予定" items={groups.events} prepareMode={prepareMode} />
       )}
       {groups.required.length > 0 && (
-        <Group label="✅ 必須タスク" items={groups.required} prepareMode={prepareMode} />
+        <Group label="必須タスク" items={groups.required} prepareMode={prepareMode} />
       )}
       {groups.optional.length > 0 && (
         <Group
-          label="◎ 任意タスク"
+          label="任意タスク"
           items={groups.optional}
           prepareMode={prepareMode}
           muted
