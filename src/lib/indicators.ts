@@ -18,9 +18,13 @@ export async function getMonthlyIndicators(
   ]);
 
   const map: Record<string, DayIndicators> = {};
-  // タスクの集計
+  // タスクの集計。
+  // DayDetailSheet 側は DONE / SKIPPED 両方を「終わった項目」として
+  // メインバケットから外しているので、月インジケータも同じ扱いにする。
+  // ここで OPEN だけカウントすれば、月ビューと日詳細でドット表示の有無が
+  // ズレることを防げる。
   for (const r of rows) {
-    if (r.status === "DONE") continue;
+    if (r.status !== "OPEN") continue;
     // Asia/Tokyo日に丸める
     const jst = new Date(r.dueAt.getTime() + 9 * 60 * 60 * 1000);
     const ymd = jst.toISOString().slice(0, 10);

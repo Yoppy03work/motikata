@@ -3,7 +3,16 @@
 // - 1 バッチ最大 BATCH_SIZE 件。worker が毎分叩くので大きい必要はない。
 // - 失敗は attempts++、3回失敗で FAILED。
 // - 紐づく TaskInstance が既に DONE/SKIPPED ならその Reminder は SKIPPED。
-// - PUSH チャネルは未実装(別 dispatcher 担当)。本ファイルは SLACK のみ進める。
+// - SLACK / PUSH 両チャネルを処理。
+//
+// 並行性:
+//   - 送信前に atomic な「claim」(updateMany with status=PENDING)で attempts を
+//     増やしてから送る。同じレコードを2つの dispatcher が同時に拾った場合、
+//     後発側は updateMany.count===0 で送信スキップする。
+//   - 送信直前に instance.status を再 fetch してチェック。dispatch 中にタスクが
+//     完了/スキップされた場合の stale 通知を防ぐ。
+//   - Push が「購読者あり・全件配信失敗」のケースは SENT ではなく PENDING/FAILED
+//     扱いにして再試行を許容する。
 
 import { formatInTimeZone } from "date-fns-tz";
 import { ja } from "date-fns/locale/ja";
@@ -21,6 +30,16 @@ export type DispatchSummary = {
   skipped: number;
   examined: number;
 };
+
+/** PENDING のリマインダーを attempts++ で原子的に占有する。
+ *  別の dispatcher が先に占有していたら count===0。 */
+async function tryClaim(reminderId: number): Promise<boolean> {
+  const res = await prisma.reminder.updateMany({
+    where: { id: reminderId, status: "PENDING" },
+    data: { attempts: { increment: 1 } },
+  });
+  return res.count > 0;
+}
 
 export async function dispatchPendingReminders(): Promise<DispatchSummary> {
   const now = new Date();
@@ -53,19 +72,36 @@ export async function dispatchPendingReminders(): Promise<DispatchSummary> {
   let skipped = 0;
 
   for (const r of pending) {
-    // タスク本体が既に DONE/SKIPPED ならリマインダー不要
-    if (r.instance.status !== "OPEN") {
+    // 1) atomic claim (attempts++ with status=PENDING 条件)
+    const claimed = await tryClaim(r.id);
+    if (!claimed) {
+      // 既に他の dispatcher / 並行処理が拾った
+      continue;
+    }
+    // claim 成功後の attempts 値(以後 update では idempotent)
+    const nextAttempts = r.attempts + 1;
+    const willBeFailed = nextAttempts >= MAX_ATTEMPTS;
+
+    // 2) 送信直前に instance.status を再確認(stale 通知防止)
+    const freshInstance = await prisma.taskInstance.findUnique({
+      where: { id: r.instance.id },
+      select: { status: true },
+    });
+    if (!freshInstance || freshInstance.status !== "OPEN") {
       await prisma.reminder.update({
         where: { id: r.id },
-        data: { status: "SKIPPED" },
+        data: {
+          status: "SKIPPED",
+          lastError: "task no longer OPEN",
+        },
       });
       skipped++;
       continue;
     }
 
+    // 3) チャネル別に送信
     if (r.channel === "SLACK") {
       if (!isSlackEnabled()) {
-        // 未設定: SKIPPED にして無限再試行を避ける
         await prisma.reminder.update({
           where: { id: r.id },
           data: {
@@ -81,22 +117,14 @@ export async function dispatchPendingReminders(): Promise<DispatchSummary> {
         await sendSlackMessage(buildSlackMessage(r.instance));
         await prisma.reminder.update({
           where: { id: r.id },
-          data: {
-            status: "SENT",
-            sentAt: new Date(),
-            attempts: r.attempts + 1,
-            lastError: null,
-          },
+          data: { status: "SENT", sentAt: new Date(), lastError: null },
         });
         sent++;
       } catch (e) {
-        const nextAttempts = r.attempts + 1;
-        const failedNow = nextAttempts >= MAX_ATTEMPTS;
         await prisma.reminder.update({
           where: { id: r.id },
           data: {
-            status: failedNow ? "FAILED" : "PENDING",
-            attempts: nextAttempts,
+            status: willBeFailed ? "FAILED" : "PENDING",
             lastError: (e instanceof Error ? e.message : String(e)).slice(0, 500),
           },
         });
@@ -110,10 +138,7 @@ export async function dispatchPendingReminders(): Promise<DispatchSummary> {
       if (!ok) {
         await prisma.reminder.update({
           where: { id: r.id },
-          data: {
-            status: "SKIPPED",
-            lastError: "VAPID 鍵が未設定です",
-          },
+          data: { status: "SKIPPED", lastError: "VAPID 鍵が未設定です" },
         });
         skipped++;
         continue;
@@ -122,15 +147,25 @@ export async function dispatchPendingReminders(): Promise<DispatchSummary> {
         const payload = buildPushPayload(r.instance);
         const result = await sendPushToAll(payload);
         if (result.total === 0) {
-          // 購読者がいないので SKIPPED 扱いにして retry しない
+          // 購読者がいない: SKIPPED(無限リトライしない)
+          await prisma.reminder.update({
+            where: { id: r.id },
+            data: { status: "SKIPPED", lastError: "Push 購読者がいません" },
+          });
+          skipped++;
+          continue;
+        }
+        if (result.delivered === 0) {
+          // 購読者はいるが 1件も配信成功してない → 失敗扱い
+          // (一時的な VAPID/購読キー障害の可能性。MAX に達するまで retry)
           await prisma.reminder.update({
             where: { id: r.id },
             data: {
-              status: "SKIPPED",
-              lastError: "Push 購読者がいません",
+              status: willBeFailed ? "FAILED" : "PENDING",
+              lastError: `all push delivery failed (failed=${result.failed})`,
             },
           });
-          skipped++;
+          failed++;
           continue;
         }
         await prisma.reminder.update({
@@ -138,7 +173,6 @@ export async function dispatchPendingReminders(): Promise<DispatchSummary> {
           data: {
             status: "SENT",
             sentAt: new Date(),
-            attempts: r.attempts + 1,
             lastError:
               result.failed > 0
                 ? `partial: delivered=${result.delivered} failed=${result.failed}`
@@ -147,13 +181,10 @@ export async function dispatchPendingReminders(): Promise<DispatchSummary> {
         });
         sent++;
       } catch (e) {
-        const nextAttempts = r.attempts + 1;
-        const failedNow = nextAttempts >= MAX_ATTEMPTS;
         await prisma.reminder.update({
           where: { id: r.id },
           data: {
-            status: failedNow ? "FAILED" : "PENDING",
-            attempts: nextAttempts,
+            status: willBeFailed ? "FAILED" : "PENDING",
             lastError: (e instanceof Error ? e.message : String(e)).slice(0, 500),
           },
         });
@@ -181,7 +212,7 @@ function buildPushPayload(instance: ReminderInstance): {
         : "任意タスク";
   return {
     title: `${tag}: ${instance.title}`.slice(0, 120),
-    body: `⏰ ${time}`,
+    body: `${time}`,
     url: "/today",
     tag: `task-${instance.id}`,
   };
@@ -200,13 +231,19 @@ function buildSlackMessage(instance: ReminderInstance): { text: string } {
   const time = formatInTimeZone(instance.dueAt, APP_TZ, "M月d日 HH:mm", { locale: ja });
   const tag =
     instance.itemType === "EVENT"
-      ? "📅 予定"
+      ? "予定"
       : instance.required
-        ? "✅ 必須タスク"
-        : "◎ 任意タスク";
-  const priorityIcon =
-    instance.priority === "HIGH" ? "🔴" : instance.priority === "MID" ? "🟡" : "⚪";
+        ? "必須タスク"
+        : "任意タスク";
+  const priorityLabel =
+    instance.itemType === "EVENT"
+      ? ""
+      : instance.priority === "HIGH"
+        ? "[優先 高]"
+        : instance.priority === "MID"
+          ? ""
+          : "[優先 低]";
   return {
-    text: `${tag} ${priorityIcon} ${instance.title}\n⏰ ${time}`,
+    text: `[${tag}]${priorityLabel ? " " + priorityLabel : ""} ${instance.title}\n${time}`,
   };
 }

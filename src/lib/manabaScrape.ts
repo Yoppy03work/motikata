@@ -40,13 +40,22 @@ const DEFAULT_BASE = "https://cit.manaba.jp";
 const UA =
   "Mozilla/5.0 (mochikata-reminder) Node fetch (Personal use)";
 
-type CookieJar = Map<string, string>;
+// ホスト別の Cookie 保存。manaba にしか送らないつもりだが、リダイレクトが
+// 別ドメインに行く可能性があるので request host が一致するもの だけ送る。
+// (CookieJar に詰めて全部送ると認証 cookie が外部に漏れる)
+type HostCookieJar = Map<string, Map<string, string>>;
 
-function jarHeader(jar: CookieJar): string {
-  return [...jar.entries()].map(([k, v]) => `${k}=${v}`).join("; ");
+function jarHeader(jar: HostCookieJar, host: string): string {
+  const bucket = jar.get(host);
+  if (!bucket || bucket.size === 0) return "";
+  return [...bucket.entries()].map(([k, v]) => `${k}=${v}`).join("; ");
 }
 
-function ingestSetCookie(jar: CookieJar, headers: Headers): void {
+function ingestSetCookie(
+  jar: HostCookieJar,
+  host: string,
+  headers: Headers,
+): void {
   // Headers#getSetCookie は Node 20 以降で利用可
   const list = (
     typeof (headers as unknown as { getSetCookie?: () => string[] })
@@ -54,6 +63,11 @@ function ingestSetCookie(jar: CookieJar, headers: Headers): void {
       ? (headers as unknown as { getSetCookie: () => string[] }).getSetCookie()
       : []
   ) as string[];
+  let bucket = jar.get(host);
+  if (!bucket) {
+    bucket = new Map();
+    jar.set(host, bucket);
+  }
   for (const raw of list) {
     const semi = raw.indexOf(";");
     const pair = (semi === -1 ? raw : raw.slice(0, semi)).trim();
@@ -63,22 +77,24 @@ function ingestSetCookie(jar: CookieJar, headers: Headers): void {
     const value = pair.slice(eq + 1).trim();
     if (!name) continue;
     if (!value) {
-      jar.delete(name);
+      bucket.delete(name);
       continue;
     }
-    jar.set(name, value);
+    bucket.set(name, value);
   }
 }
 
 async function manabaFetch(
-  jar: CookieJar,
+  jar: HostCookieJar,
   url: string,
   init?: RequestInit,
 ): Promise<Response> {
+  const u = new URL(url);
   const headers = new Headers(init?.headers);
   headers.set("User-Agent", UA);
   headers.set("Accept", "text/html,application/xhtml+xml");
-  if (jar.size > 0) headers.set("Cookie", jarHeader(jar));
+  const cookieHeader = jarHeader(jar, u.host);
+  if (cookieHeader) headers.set("Cookie", cookieHeader);
   let res: Response;
   try {
     res = await fetch(url, {
@@ -101,19 +117,25 @@ async function manabaFetch(
       "fetch",
     );
   }
-  ingestSetCookie(jar, res.headers);
+  ingestSetCookie(jar, u.host, res.headers);
   if (res.status >= 300 && res.status < 400) {
     const loc = res.headers.get("location");
     if (loc) {
       const next = new URL(loc, url).toString();
-      return manabaFetch(jar, next, { method: "GET" });
+      // 301/302/303 は method/body を捨てて GET、307/308 は元のメソッド/ボディを維持。
+      // 元コードは常に GET にしていたが、307/308 の場合に POST が壊れる。
+      const preserveMethod = res.status === 307 || res.status === 308;
+      const nextInit: RequestInit = preserveMethod
+        ? { ...init, headers: undefined }
+        : { method: "GET" };
+      return manabaFetch(jar, next, nextInit);
     }
   }
   return res;
 }
 
 async function login(
-  jar: CookieJar,
+  jar: HostCookieJar,
   base: string,
   username: string,
   password: string,
@@ -199,9 +221,10 @@ function parseDueDate(text: string): Date | null {
     const now = new Date();
     const [, mon, d, hh, mm] = m2.map(Number);
     // 年なしの日付: まず今年で解釈、過去になるなら翌年と推定。
-    // 例: 4月時点で "1/15 23:59" は「今年の1月」(過去)ではなく「来年の1月」を意図。
-    //     UI 表示や manaba 仕様で年を省略するケースを許容するための fallback。
-    let y = now.getUTCFullYear();
+    // 「今年」は JST 基準で取得する(年明け 0:00〜9:00 JST だと UTC はまだ前年で、
+    // getUTCFullYear() を使うと 1 年早い年が入ってしまう)。
+    const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+    let y = jstNow.getUTCFullYear();
     let candidate = new Date(Date.UTC(y, mon - 1, d, hh - 9, mm));
     if (candidate.getTime() < now.getTime()) {
       y += 1;
@@ -275,7 +298,7 @@ const ASSIGNMENT_URL_CANDIDATES = [
   "/ct/mypage_published_report",
 ];
 
-async function findAssignmentsUrl(jar: CookieJar, base: string): Promise<string> {
+async function findAssignmentsUrl(jar: HostCookieJar, base: string): Promise<string> {
   // 既知の候補 URL を順に試行。最初に 200 を返したものを採用。
   for (const path of ASSIGNMENT_URL_CANDIDATES) {
     const url = `${base}${path}`;
@@ -311,7 +334,7 @@ export async function fetchManabaAssignments(
 ): Promise<ManabaAssignment[]> {
   const base = (process.env.MANABA_BASE_URL ?? DEFAULT_BASE).replace(/\/$/, "");
   if (!username || !password) throw new ManabaError("認証情報が空です", "config");
-  const jar: CookieJar = new Map();
+  const jar: HostCookieJar = new Map();
 
   await login(jar, base, username, password);
 

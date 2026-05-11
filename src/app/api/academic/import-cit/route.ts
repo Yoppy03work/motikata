@@ -144,6 +144,26 @@ export async function POST(req: Request) {
   }
 
   // 2) ClassDay: 学年度の範囲を一旦全削除して入れ直し(内容が一意になるよう同期)
+  // 注意: PDF パースで学期境界マーカー(前期授業開始/終了 等)を取りこぼすと
+  // classDays が空配列になる。その場合、replaceClassDays はその学年の既存
+  // ClassDay を全消去して何も挿入しない=破壊的データ損失になるため、
+  // 既存データを保護してエラーで返す(import-cit dryRun で確認推奨)。
+  if (classDays.length === 0) {
+    return NextResponse.json(
+      {
+        error:
+          "学期境界マーカーが PDF から検出できず、ClassDay を計算できませんでした。" +
+          "既存の ClassDay は保護されます。PDF レイアウト変更の可能性があるため、" +
+          "dryRun でプレビューを確認してください。",
+        academicYear,
+        inserted: insertedEvents,
+        skipped: skippedEvents,
+        classDayInserted: 0,
+        classDayDeleted: 0,
+      },
+      { status: 422 },
+    );
+  }
   const { start, end } = academicYearRange(academicYear);
   const cd = await replaceClassDays(start, end, classDays);
 

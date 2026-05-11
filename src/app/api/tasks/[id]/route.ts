@@ -4,6 +4,7 @@
 
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { requireAuthApi } from "@/lib/authGuard";
 import { ItemType, TaskPriority } from "@/lib/validation/enums";
@@ -46,9 +47,19 @@ export async function PATCH(
   if (parsed.data.required !== undefined) data.required = parsed.data.required;
   if (parsed.data.priority !== undefined) data.priority = parsed.data.priority;
 
-  const updated = await prisma.taskInstance.update({
-    where: { id },
-    data,
-  });
-  return NextResponse.json({ ok: true, item: updated });
+  try {
+    const updated = await prisma.taskInstance.update({
+      where: { id },
+      data,
+    });
+    return NextResponse.json({ ok: true, item: updated });
+  } catch (e) {
+    if (
+      e instanceof Prisma.PrismaClientKnownRequestError &&
+      e.code === "P2025"
+    ) {
+      return NextResponse.json({ error: "not found" }, { status: 404 });
+    }
+    throw e;
+  }
 }

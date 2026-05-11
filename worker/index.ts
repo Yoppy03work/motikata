@@ -33,6 +33,7 @@ async function callJob(path: string, label: string): Promise<void> {
           classes?: number;
           scheduled?: number;
           scanned?: number;
+          replaced?: number;
           isClassDay?: boolean;
         }
       | null;
@@ -45,7 +46,8 @@ async function callJob(path: string, label: string): Promise<void> {
         json.inserted ||
         json.classes ||
         json.scheduled ||
-        json.scanned)
+        json.scanned ||
+        json.replaced)
     ) {
       const parts: string[] = [];
       if (json.examined !== undefined) parts.push(`examined=${json.examined}`);
@@ -55,6 +57,7 @@ async function callJob(path: string, label: string): Promise<void> {
       if (json.failed !== undefined) parts.push(`failed=${json.failed}`);
       if (json.inserted !== undefined) parts.push(`inserted=${json.inserted}`);
       if (json.scheduled !== undefined) parts.push(`scheduled=${json.scheduled}`);
+      if (json.replaced !== undefined) parts.push(`replaced=${json.replaced}`);
       if (json.skipped !== undefined) parts.push(`skipped=${json.skipped}`);
       if (json.deleted !== undefined) parts.push(`deleted=${json.deleted}`);
       console.log(`[worker] ${label}: ${parts.join(" ")}`);
@@ -75,9 +78,20 @@ cron.schedule(
   { timezone: "Asia/Tokyo" },
 );
 
-// dispatch-reminders: 毎分。pending な Reminder を Slack に流す
+// dispatch-reminders: 毎分。pending な Reminder を Slack/Push に流す。
+// 直前の実行が 60 秒以上かかると次の cron tick が重なり、同じ PENDING 行を
+// 別呼び出しが拾って二重通知になる可能性がある。in-flight ガードで
+// 重複起動をスキップする(API 側にも atomic claim を入れているが二段防御)。
+let dispatchInFlight = false;
 cron.schedule("* * * * *", () => {
-  void callJob("/api/jobs/dispatch-reminders", "dispatch-reminders");
+  if (dispatchInFlight) {
+    console.log("[worker] dispatch-reminders: previous run still in flight, skipping");
+    return;
+  }
+  dispatchInFlight = true;
+  void callJob("/api/jobs/dispatch-reminders", "dispatch-reminders").finally(() => {
+    dispatchInFlight = false;
+  });
 });
 
 // escalate: 毎朝 07:00 JST。
@@ -91,16 +105,20 @@ cron.schedule(
   { timezone: "Asia/Tokyo" },
 );
 
-// cleanup-past-tasks + manaba-sync: 毎朝 04:00 JST。
+// cleanup-past-tasks + manaba-sync + cit-portal-sync: 毎日 04:00 / 13:00 / 19:00 JST の 3 回。
 // 順序:
 //   1. cleanup で締切超過の TASK を消す
 //   2. manaba-sync で未来の課題を取り直す
-// (cleanup → sync の順は、消した直後に最新を取り直すため)
+//      (cleanup → sync の順は、消した直後に最新を取り直すため)
+//   3. cit-portal-sync で時間割(ClassSchedule)を全置換
+// 注意: cit-portal-sync は同期内で 1 回 SSO+MFA する。1 日 3 回ログインは
+//       同一 IP からの連続アクセスとして検知対象になる可能性がある(様子見)。
 cron.schedule(
-  "0 4 * * *",
+  "0 4,13,19 * * *",
   async () => {
     await callJob("/api/jobs/cleanup-past-tasks", "cleanup-past-tasks");
     await callJob("/api/jobs/manaba-sync", "manaba-sync");
+    await callJob("/api/jobs/cit-portal-sync", "cit-portal-sync");
   },
   { timezone: "Asia/Tokyo" },
 );

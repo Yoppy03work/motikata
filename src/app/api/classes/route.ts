@@ -10,11 +10,20 @@ export const dynamic = "force-dynamic";
 
 const HHmm = z.string().regex(/^\d{2}:\d{2}$/, "HH:mm 形式で入力してください");
 
+// hex カラー(#RGB / #RRGGBB)。空/未指定は null として扱う。
+const HexColor = z
+  .string()
+  .regex(/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "色は #RRGGBB 形式で指定")
+  .optional()
+  .nullable();
+
 // 手動入力 UI 用の最小入力。tagIds / checklist / reminders は別経路で。
 // CIT は 1〜10 限の 1時間枠。連続 2〜4限が普通。
+// dayOfWeek は月-土 (1..6) のみ。UI が日曜を表示しないので、7 で保存すると
+// 一覧から見えない hidden 行になるため禁止する。
 const CreateBody = z
   .object({
-    dayOfWeek: z.number().int().min(1).max(7),
+    dayOfWeek: z.number().int().min(1).max(6),
     period: z.number().int().min(1).max(10),
     endPeriod: z.number().int().min(1).max(10),
     startTime: HHmm,
@@ -22,6 +31,7 @@ const CreateBody = z
     courseName: z.string().min(1).max(120),
     classroom: z.string().max(60).optional().nullable(),
     teacher: z.string().max(60).optional().nullable(),
+    color: HexColor,
   })
   .refine((v) => v.endPeriod >= v.period, {
     message: "終了限は開始限以上にしてください",
@@ -44,12 +54,13 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
-  const { classroom, teacher, ...rest } = parsed.data;
+  const { classroom, teacher, color, ...rest } = parsed.data;
   const item = await prisma.classSchedule.create({
     data: {
       ...rest,
       classroom: classroom ?? null,
       teacher: teacher ?? null,
+      color: color ?? null,
     },
   });
   return NextResponse.json({ ok: true, item }, { status: 201 });
