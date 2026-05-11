@@ -84,11 +84,21 @@ function ingestSetCookie(
   }
 }
 
+// リダイレクトループ防止用の上限。8 段あれば SSO/IdP の通常往復は足りる。
+const MAX_REDIRECTS = 8;
+
 async function manabaFetch(
   jar: HostCookieJar,
   url: string,
   init?: RequestInit,
+  redirectCount = 0,
 ): Promise<Response> {
+  if (redirectCount > MAX_REDIRECTS) {
+    throw new ManabaError(
+      `too many redirects (>${MAX_REDIRECTS}) at url=${url}`,
+      "fetch",
+    );
+  }
   const u = new URL(url);
   const headers = new Headers(init?.headers);
   headers.set("User-Agent", UA);
@@ -128,7 +138,7 @@ async function manabaFetch(
       const nextInit: RequestInit = preserveMethod
         ? { ...init, headers: undefined }
         : { method: "GET" };
-      return manabaFetch(jar, next, nextInit);
+      return manabaFetch(jar, next, nextInit, redirectCount + 1);
     }
   }
   return res;

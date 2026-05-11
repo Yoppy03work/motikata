@@ -11,7 +11,7 @@ import { prisma } from "@/lib/db";
 import { requireAuthApi } from "@/lib/authGuard";
 import { parseCitGakunenreki } from "@/lib/parseCitGakunenreki";
 import { SETTING_KEY_LAST_FETCH } from "@/lib/academicSettings";
-import { computeClassDaysFromEvents, replaceClassDays } from "@/lib/classDays";
+import { computeClassDaysFromEvents } from "@/lib/classDays";
 
 export const runtime = "nodejs";
 // PDF パースは pdfjs-dist の都合で Node ランタイム必須
@@ -107,65 +107,79 @@ export async function POST(req: Request) {
     });
   }
 
-  // 1) AcademicEvent: 重複チェックして fresh だけ insert
-  let insertedEvents = 0;
-  let skippedEvents = 0;
-  if (keepEvents.length > 0) {
-    const minDate = keepEvents.reduce(
-      (m, e) => (e.date < m ? e.date : m),
-      keepEvents[0].date,
-    );
-    const maxDate = keepEvents.reduce(
-      (m, e) => (e.date > m ? e.date : m),
-      keepEvents[0].date,
-    );
-    const existing = await prisma.academicEvent.findMany({
-      where: { date: { gte: minDate, lte: maxDate } },
-      select: { date: true, title: true },
-    });
-    const existingKey = new Set(
-      existing.map((e) => `${e.date.toISOString()}|${e.title}`),
-    );
-    const fresh = keepEvents.filter(
-      (e) => !existingKey.has(`${e.date.toISOString()}|${e.title}`),
-    );
-    if (fresh.length > 0) {
-      await prisma.academicEvent.createMany({
-        data: fresh.map((e) => ({
-          title: e.title,
-          date: e.date,
-          kind: e.kind,
-          importedFrom: SOURCE_TAG,
-        })),
-      });
-    }
-    insertedEvents = fresh.length;
-    skippedEvents = keepEvents.length - fresh.length;
-  }
-
-  // 2) ClassDay: 学年度の範囲を一旦全削除して入れ直し(内容が一意になるよう同期)
-  // 注意: PDF パースで学期境界マーカー(前期授業開始/終了 等)を取りこぼすと
+  // 重要: classDays の空チェックは DB 書き込み前に行う。
+  // PDF パースで学期境界マーカー(前期授業開始/終了 等)を取りこぼすと
   // classDays が空配列になる。その場合、replaceClassDays はその学年の既存
   // ClassDay を全消去して何も挿入しない=破壊的データ損失になるため、
-  // 既存データを保護してエラーで返す(import-cit dryRun で確認推奨)。
+  // この時点でエラー応答して以降の書き込みを行わない。
   if (classDays.length === 0) {
     return NextResponse.json(
       {
         error:
           "学期境界マーカーが PDF から検出できず、ClassDay を計算できませんでした。" +
-          "既存の ClassDay は保護されます。PDF レイアウト変更の可能性があるため、" +
-          "dryRun でプレビューを確認してください。",
+          "既存の AcademicEvent / ClassDay は保護されます。" +
+          "PDF レイアウト変更の可能性があるため、dryRun でプレビューを確認してください。",
         academicYear,
-        inserted: insertedEvents,
-        skipped: skippedEvents,
+        inserted: 0,
+        skipped: 0,
         classDayInserted: 0,
         classDayDeleted: 0,
       },
       { status: 422 },
     );
   }
+
+  // 1) AcademicEvent + ClassDay を 1 トランザクションで書き込む。
+  // 途中で例外が出れば全部ロールバックされ、部分的な不整合を残さない。
+  let insertedEvents = 0;
+  let skippedEvents = 0;
   const { start, end } = academicYearRange(academicYear);
-  const cd = await replaceClassDays(start, end, classDays);
+  const cd = await prisma.$transaction(async (tx) => {
+    if (keepEvents.length > 0) {
+      const minDate = keepEvents.reduce(
+        (m, e) => (e.date < m ? e.date : m),
+        keepEvents[0].date,
+      );
+      const maxDate = keepEvents.reduce(
+        (m, e) => (e.date > m ? e.date : m),
+        keepEvents[0].date,
+      );
+      const existing = await tx.academicEvent.findMany({
+        where: { date: { gte: minDate, lte: maxDate } },
+        select: { date: true, title: true },
+      });
+      const existingKey = new Set(
+        existing.map((e) => `${e.date.toISOString()}|${e.title}`),
+      );
+      const fresh = keepEvents.filter(
+        (e) => !existingKey.has(`${e.date.toISOString()}|${e.title}`),
+      );
+      if (fresh.length > 0) {
+        await tx.academicEvent.createMany({
+          data: fresh.map((e) => ({
+            title: e.title,
+            date: e.date,
+            kind: e.kind,
+            importedFrom: SOURCE_TAG,
+          })),
+        });
+      }
+      insertedEvents = fresh.length;
+      skippedEvents = keepEvents.length - fresh.length;
+    }
+
+    // ClassDay は同じトランザクション内で置き換え
+    const del = await tx.classDay.deleteMany({
+      where: { date: { gte: start, lte: end } },
+    });
+    if (classDays.length > 0) {
+      await tx.classDay.createMany({
+        data: classDays.map((d) => ({ date: d })),
+        skipDuplicates: true,
+      });
+    }
+    return { inserted: classDays.length, deleted: del.count };
+  });
 
   await recordLastFetch(academicYear, insertedEvents, skippedEvents, cd.inserted);
 
