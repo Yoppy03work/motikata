@@ -242,8 +242,11 @@ model ClassDay {
 // manaba 連携用の暗号化保存資格情報(単一ユーザー前提なので 1 行のみ)。
 // passwordEnc は AES-256-GCM。鍵は SESSION_SECRET 派生で暗号化(crypto.ts)。
 // lastError には直近の同期時のエラー(あれば)、lastSyncedAt は最終成功時刻。
+// singletonKey は固定値 "default" を入れて DB レベルで 1 行制約を効かせる
+// (並行書き込みでの重複行を防ぐ; upsert で使う)。
 model ManabaCredential {
   id            Int       @id @default(autoincrement())
+  singletonKey  String    @unique @default("default")
   username      String
   passwordEnc   String
   lastSyncedAt  DateTime?
@@ -256,9 +259,11 @@ model ManabaCredential {
 // SSO + MFA(TOTP)経由でログインするため、TOTPシークレットも保存する。
 // 注意: passwordEnc と totpSecretEnc が同一鍵(SESSION_SECRET派生)で
 // 暗号化されているため、DB+鍵が同時に漏洩した場合 MFA 保護は実質失われる。
-// 単一ユーザー前提のため 1 行のみ。
+// 単一ユーザー前提のため 1 行のみ。singletonKey で DB 一意性も保証する
+// (並行 save での重複挿入を防ぐ)。
 model CitPortalCredential {
   id             Int       @id @default(autoincrement())
+  singletonKey   String    @unique @default("default")
   username       String
   passwordEnc    String
   totpSecretEnc  String

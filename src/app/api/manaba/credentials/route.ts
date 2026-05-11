@@ -41,18 +41,13 @@ export async function POST(req: Request) {
   const { username, password } = parsed.data;
   const passwordEnc = encryptManabaPassword(password);
 
-  // 単一ユーザー前提なので、既存があれば update / なければ create
-  const existing = await prisma.manabaCredential.findFirst();
-  if (existing) {
-    await prisma.manabaCredential.update({
-      where: { id: existing.id },
-      data: { username, passwordEnc, lastError: null },
-    });
-  } else {
-    await prisma.manabaCredential.create({
-      data: { username, passwordEnc },
-    });
-  }
+  // 単一行制約を持つ singletonKey で atomic upsert。
+  // 並行リクエスト(ダブルクリック / 別タブ)で複数行が挿入されるのを防ぐ。
+  await prisma.manabaCredential.upsert({
+    where: { singletonKey: "default" },
+    create: { singletonKey: "default", username, passwordEnc },
+    update: { username, passwordEnc, lastError: null },
+  });
   return NextResponse.json({ ok: true });
 }
 

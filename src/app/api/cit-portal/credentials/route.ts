@@ -60,24 +60,25 @@ export async function POST(req: Request) {
   const totpSecretEnc = encryptCitPortalTotpSecret(totpSecret);
   const totpDeviceName = parsed.data.totpDeviceName?.trim() || null;
 
-  // 単一ユーザー前提なので、既存があれば update / なければ create
-  const existing = await prisma.citPortalCredential.findFirst();
-  if (existing) {
-    await prisma.citPortalCredential.update({
-      where: { id: existing.id },
-      data: {
-        username,
-        passwordEnc,
-        totpSecretEnc,
-        totpDeviceName,
-        lastError: null,
-      },
-    });
-  } else {
-    await prisma.citPortalCredential.create({
-      data: { username, passwordEnc, totpSecretEnc, totpDeviceName },
-    });
-  }
+  // 単一行制約を持つ singletonKey で atomic upsert。
+  // 並行リクエスト(ダブルクリック / 別タブ)で複数行が挿入されるのを防ぐ。
+  await prisma.citPortalCredential.upsert({
+    where: { singletonKey: "default" },
+    create: {
+      singletonKey: "default",
+      username,
+      passwordEnc,
+      totpSecretEnc,
+      totpDeviceName,
+    },
+    update: {
+      username,
+      passwordEnc,
+      totpSecretEnc,
+      totpDeviceName,
+      lastError: null,
+    },
+  });
   return NextResponse.json({ ok: true });
 }
 
