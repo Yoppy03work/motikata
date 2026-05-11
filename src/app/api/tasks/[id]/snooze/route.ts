@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { requireAuthApi } from "@/lib/authGuard";
 
@@ -20,34 +21,47 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
 
-  const result = await prisma.$transaction(async (tx) => {
-    // 既存の未送信リマインダーをSKIPPED(後回しのため)
-    await tx.reminder.updateMany({
-      where: { instanceId: id, status: "PENDING" },
-      data: { status: "SKIPPED" },
-    });
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      // 既存の未送信リマインダーをSKIPPED(後回しのため)
+      await tx.reminder.updateMany({
+        where: { instanceId: id, status: "PENDING" },
+        data: { status: "SKIPPED" },
+      });
 
-    // 直近のescalation_levelの最大+1で新しいリマインダーを追加
-    const max = await tx.reminder.aggregate({
-      where: { instanceId: id },
-      _max: { escalationLevel: true },
-    });
-    const nextLevel = (max._max.escalationLevel ?? -1) + 1;
-    const remindAt = new Date(Date.now() + SNOOZE_MINUTES * 60_000);
-    const channel = "PUSH" as const;
-    const dedupeKey = `${id}:${remindAt.toISOString()}:${channel}:${nextLevel}`;
+      // 直近のescalation_levelの最大+1で新しいリマインダーを追加
+      const max = await tx.reminder.aggregate({
+        where: { instanceId: id },
+        _max: { escalationLevel: true },
+      });
+      const nextLevel = (max._max.escalationLevel ?? -1) + 1;
+      const remindAt = new Date(Date.now() + SNOOZE_MINUTES * 60_000);
+      const channel = "PUSH" as const;
+      const dedupeKey = `${id}:${remindAt.toISOString()}:${channel}:${nextLevel}`;
 
-    const reminder = await tx.reminder.create({
-      data: {
-        instanceId: id,
-        remindAt,
-        channel,
-        escalationLevel: nextLevel,
-        dedupeKey,
-      },
+      const reminder = await tx.reminder.create({
+        data: {
+          instanceId: id,
+          remindAt,
+          channel,
+          escalationLevel: nextLevel,
+          dedupeKey,
+        },
+      });
+      return reminder;
     });
-    return reminder;
-  });
-
-  return NextResponse.json({ reminder: result });
+    return NextResponse.json({ reminder: result });
+  } catch (e) {
+    // findUnique 後・トランザクション中にタスクが削除されると Reminder.instanceId
+    // の外部キー制約違反(P2003)になる。これは想定内の race condition なので
+    // 500 ではなく recoverable な 404 を返す。
+    // P2025 (record not found) も同様に 404 へマッピング。
+    if (
+      e instanceof Prisma.PrismaClientKnownRequestError &&
+      (e.code === "P2003" || e.code === "P2025")
+    ) {
+      return NextResponse.json({ error: "not found" }, { status: 404 });
+    }
+    throw e;
+  }
 }

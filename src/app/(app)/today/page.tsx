@@ -1,6 +1,6 @@
 import { format } from "date-fns";
 import { ja } from "date-fns/locale/ja";
-import { toZonedTime } from "date-fns-tz";
+import { toZonedTime, formatInTimeZone } from "date-fns-tz";
 import Link from "next/link";
 import { APP_TZ } from "@/lib/tz";
 import { getMonthlyIndicators, monthWindow } from "@/lib/indicators";
@@ -232,7 +232,10 @@ function DayBlock({
 function NextUpCard({ item, now }: { item: TodayItem; now: Date }) {
   const due = new Date(item.dueAt);
   const diffMin = Math.max(0, Math.round((due.getTime() - now.getTime()) / 60_000));
-  const time = format(due, "HH:mm");
+  // UI 全体の他箇所と揃えて JST(APP_TZ)で表示。
+  // 旧コードは date-fns の format(due, "HH:mm") を使っており、これは
+  // サーバランタイムの TZ に従うので UTC ホストでは 9 時間ズレた時刻になっていた。
+  const time = formatInTimeZone(due, APP_TZ, "HH:mm");
   const label =
     item.itemType === "EVENT" ? "次の予定" : item.required ? "次の必須タスク" : "次のタスク";
   const remaining =
