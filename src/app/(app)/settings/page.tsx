@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { PREF_SWIPE_NAV, readBoolPref, writeBoolPref } from "@/lib/prefs";
 import { applyTheme, readTheme, writeTheme, type ThemeMode } from "@/lib/theme";
+import { RepeatIcon } from "@/components/icons";
 import { AcademicImport } from "./AcademicImport";
+import { CitPortalSettings } from "./CitPortalSettings";
 import { ManabaSettings } from "./ManabaSettings";
 import { PushSettings } from "./PushSettings";
 import { TagSettings } from "./TagSettings";
@@ -53,21 +56,25 @@ export default function SettingsPage() {
       <h1 className="mb-4 text-2xl font-semibold">設定</h1>
 
       <section className="space-y-4">
-        <div className="rounded-xl border border-slate-200 bg-slate-100 p-4 dark:border-slate-800 dark:bg-slate-900">
-          <h2 className="mb-2 text-sm font-medium text-slate-700 dark:text-slate-300">データ管理</h2>
-          <ul className="space-y-1 text-sm">
-            <li>
-              <a href="/classes" className="text-sky-600 hover:underline dark:text-sky-400">
-                時間割マスター
-              </a>
-            </li>
-            <li>
-              <a href="/templates" className="text-sky-600 hover:underline dark:text-sky-400">
-                繰り返しテンプレート
-              </a>
-            </li>
-          </ul>
-        </div>
+        <Link
+          href="/templates"
+          className="flex items-center gap-3 rounded-xl border border-sky-500/30 bg-sky-500/5 p-4 transition hover:bg-sky-500/10 active:scale-[0.99]"
+        >
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-sky-500/15 text-sky-600 dark:text-sky-300">
+            <RepeatIcon width={22} height={22} />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">
+              繰り返しテンプレート
+            </span>
+            <span className="mt-0.5 block text-xs text-slate-600 dark:text-slate-400">
+              毎週・隔週などのタスクをテンプレ化して自動展開
+            </span>
+          </span>
+          <span className="text-slate-400" aria-hidden>
+            ›
+          </span>
+        </Link>
 
         <div className="rounded-xl border border-slate-200 bg-slate-100 p-4 dark:border-slate-800 dark:bg-slate-900">
           <h2 className="mb-3 text-sm font-medium text-slate-700 dark:text-slate-300">表示</h2>
@@ -149,6 +156,13 @@ export default function SettingsPage() {
             manaba 連携
           </h2>
           <ManabaSettings />
+        </div>
+
+        <div className="rounded-xl border border-slate-200 bg-slate-100 p-4 dark:border-slate-800 dark:bg-slate-900">
+          <h2 className="mb-2 text-sm font-medium text-slate-700 dark:text-slate-300">
+            CITポータル 連携 (時間割)
+          </h2>
+          <CitPortalSettings />
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-slate-100 p-4 dark:border-slate-800 dark:bg-slate-900">

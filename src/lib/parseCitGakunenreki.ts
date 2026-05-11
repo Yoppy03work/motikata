@@ -13,10 +13,12 @@
 //   - "X・Y日：title" / "X・Y・Z日：title"
 //   - "X～Y日：title" (範囲展開)
 //   - "履修登録期間：X月Y日（曜） ～ X月Z日（曜）" (期間ヘッダ、グリッド外)
+//   - "①日：title" / "②日：..." (CIRCLED_OVERRIDES に登録された年度のみ)
+//     PDF はセル側に丸数字を図形描画しており pdfjs で取れないため、
+//     注釈本文を見て具体日を当てる。新年度PDFは表現が変わっている可能性が
+//     あるので、必ず import 後にプレビューで確認すること。
 //
 // 非対応:
-//   - ①②③ などの丸数字(グリッド側のラベル参照のため、テキスト抽出だけでは
-//     対応する具体的な日が決まらない)
 //   - 色分けセル(視覚情報)
 
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
@@ -40,6 +42,41 @@ const EXAM_KW = ["試験", "テスト", "考査", "中間", "期末", "共通テ
 // 「祝日授業日」は名前に「祝日」を含むが意味は授業日(=EVENT)なので
 // 単純に「祝日」キーワードでマッチさせない。
 const HOLIDAY_KW = ["休講", "休業"];
+
+// 丸数字注釈の解釈テーブル(年度別)。
+// PDFはセル側に①などのマークを描画するが、pdfjsのテキスト抽出では
+// 取り出せないため、注釈本文と (academicYear, month) の組で具体日を割り当てる。
+// 1注釈が複数日に渡る場合(振替休講+ブリッジで土曜も休にするなど)は days を配列で。
+// 新年度PDFが出たら import 後にプレビューを確認して必要に応じ追記する。
+type CircledOverride = {
+  academicYear: number;
+  month: number;
+  // 注釈本文の先頭が match するパターン(完全一致でなく includes でOKな形にする)
+  pattern: string;
+  days: number[];
+};
+
+const CIRCLED_OVERRIDES: CircledOverride[] = [
+  // 2026年度 前期
+  // PDF: "①日：開学記念日（5月15日）の振替（休講）"
+  // 5/1(金) が振替休講。実運用では翌5/2(土)もブリッジで休講扱い
+  // (PDFテキスト上は5/2に注釈なしだが、CIT側で休講通知あり)
+  {
+    academicYear: 2026,
+    month: 5,
+    pattern: "開学記念日（5月15日）の振替（休講）",
+    days: [1, 2],
+  },
+  // PDF: "②日：自学自習の日（休講）" → 5/9(土)
+  {
+    academicYear: 2026,
+    month: 5,
+    pattern: "自学自習の日（休講）",
+    days: [9],
+  },
+];
+
+const CIRCLED_NUM_RE = /[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮]/;
 
 function classify(title: string): CitParsedEvent["kind"] {
   if (EXAM_KW.some((k) => title.includes(k))) return "EXAM";
@@ -191,6 +228,49 @@ function parseFullDateRange(line: string, academicYear: number): CitParsedEvent[
   return out;
 }
 
+// "①日：title" 等の丸数字注釈を CIRCLED_OVERRIDES から日付決定
+function parseCircledEntries(
+  line: string,
+  month: number,
+  year: number,
+  academicYear: number,
+): CitParsedEvent[] {
+  if (!CIRCLED_NUM_RE.test(line)) return [];
+  const re =
+    /([①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮])\s*日\s*[:：]\s*([^\n]+?)(?=(?:\s+\d{1,2}\s*日)|(?:\s+[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮]\s*日)|$)/g;
+  const out: CitParsedEvent[] = [];
+  const seen = new Set<string>();
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(line)) !== null) {
+    let title = m[2].trim();
+    title = title
+      .replace(/[\s　|]+$/, "")
+      .replace(/^[\s　|]+/, "")
+      .trim();
+    if (!title) continue;
+    const cut = title.search(/[\s　]+■[:：]/);
+    if (cut > 0) title = title.slice(0, cut).trim();
+    const ov = CIRCLED_OVERRIDES.find(
+      (o) =>
+        o.academicYear === academicYear &&
+        o.month === month &&
+        title.includes(o.pattern),
+    );
+    if (!ov) continue;
+    for (const day of ov.days) {
+      const key = `${month}/${day}|${title}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        title,
+        date: jstDate(year, month, day),
+        kind: classify(title),
+      });
+    }
+  }
+  return out;
+}
+
 // 月コンテキスト下の "X日：title" / "X・Y日：title" / "X～Y日：title"
 function parseDayLevelEntries(
   line: string,
@@ -279,6 +359,9 @@ export async function parseCitGakunenreki(): Promise<{
   for (const sec of sections) {
     for (const line of sec.lines) {
       all.push(...parseDayLevelEntries(line, sec.month, sec.year));
+      all.push(
+        ...parseCircledEntries(line, sec.month, sec.year, academicYear),
+      );
       // セクション内にも完全表記が混ざる可能性があるので両方試す
       all.push(...parseFullDateRange(line, academicYear));
     }

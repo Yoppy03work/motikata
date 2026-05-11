@@ -17,3 +17,6 @@ npm-debug.log*
 
 next-env.d.ts
 tsconfig.tsbuildinfo
+
+# 開発用の機密サンプル(HAR、パスワード入りログ、スクレイプサンプル HTML/PDF など)
+tmp/

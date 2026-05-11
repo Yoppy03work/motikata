@@ -45,6 +45,8 @@ services:
       - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY}
       - VAPID_SUBJECT=${VAPID_SUBJECT}
       - TZ=Asia/Tokyo
+      # CITポータルスクレイパーのステップ別デバッグログ。問題切り分け時のみ有効化。
+      - CIT_PORTAL_DEBUG=${CIT_PORTAL_DEBUG:-0}
     ports:
       - "3000:3000"
 

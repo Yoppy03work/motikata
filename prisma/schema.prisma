@@ -122,6 +122,8 @@ model ClassSchedule {
   courseName    String
   classroom     String?
   teacher       String?
+  // ユーザが指定したカード色 (例 "#0ea5e9")。null の場合は科目名ハッシュで自動配色。
+  color         String?
   effectiveFrom DateTime?
   effectiveTo   DateTime?
   tags          ClassTag[]
@@ -248,6 +250,26 @@ model ManabaCredential {
   lastError     String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+}
+
+// CITポータル(Universal Passport RX)連携用の暗号化保存資格情報。
+// SSO + MFA(TOTP)経由でログインするため、TOTPシークレットも保存する。
+// 注意: passwordEnc と totpSecretEnc が同一鍵(SESSION_SECRET派生)で
+// 暗号化されているため、DB+鍵が同時に漏洩した場合 MFA 保護は実質失われる。
+// 単一ユーザー前提のため 1 行のみ。
+model CitPortalCredential {
+  id             Int       @id @default(autoincrement())
+  username       String
+  passwordEnc    String
+  totpSecretEnc  String
+  // Keycloakのクレデンシャル選択画面で選ぶデバイス名(部分一致でマッチ)。
+  // 例: "PC(motica)" などポータルでTOTP登録時に付けた名前。
+  // 未設定だと最初のクレデンシャルが選ばれる。
+  totpDeviceName String?
+  lastSyncedAt   DateTime?
+  lastError      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 }
 
 model PushSubscription {
