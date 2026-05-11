@@ -115,28 +115,61 @@ async function doRunCitPortalSync(): Promise<CitPortalSyncResult> {
     return { ok: false, error: msg, stage: "scrape" };
   }
 
-  // ClassSchedule を全置換。
+  // ClassSchedule を「全置換」するが、ユーザーが手で入れた「持ち物
+  // (ChecklistTemplate)」「色 (color)」「タグ」は保持したい。
+  //
+  // 戦略: (dayOfWeek, period, courseName, effectiveFrom) を natural key として
+  // 既存行と新規データをマッチング。
+  //   - マッチした行: 既存IDを保ったまま update(教室・教員・終了限・時刻のみ)
+  //     → 紐づく ChecklistTemplate / color はそのまま保持される
+  //   - 新規(マッチしない)行: insert
+  //   - 削除(古い方にだけ存在): その classScheduleId を持つ ChecklistTemplate も
+  //     合わせて削除してから DELETE(cascade されない緩い参照のため)
+  //
   // 注意:
-  //   - TaskTemplate.classScheduleId は onDelete: Cascade なので
-  //     ClassSchedule 削除と同時に CLASS-kind TaskTemplate も消える
-  //   - ChecklistTemplate(ownerType=CLASS, ownerId=...)は緩い参照なので
-  //     先に手動 deleteMany する
+  //   - TaskTemplate.classScheduleId は onDelete: Cascade なので、
+  //     削除対象の ClassSchedule に紐づく CLASS-kind TaskTemplate は連鎖削除される
+  //   - 履修登録が変わって科目名が変わるとマッチしないので新規扱い(ユーザー側で
+  //     チェックリストを付け直す必要があるが、これは仕様上不可避)
   let replaced = 0;
   try {
     await prisma.$transaction(async (tx) => {
-      const existing = await tx.classSchedule.findMany({ select: { id: true } });
-      const existingIds = existing.map((r) => r.id);
-      if (existingIds.length > 0) {
-        await tx.checklistTemplate.deleteMany({
-          where: { ownerType: "CLASS", ownerId: { in: existingIds } },
-        });
-        await tx.classSchedule.deleteMany({
-          where: { id: { in: existingIds } },
+      const existing = await tx.classSchedule.findMany();
+      // natural key の生成。effectiveFrom は ISO 文字列で比較(Date 同士の参照比較を避ける)
+      const keyOf = (c: {
+        dayOfWeek: number;
+        period: number;
+        courseName: string;
+        effectiveFrom: Date | null;
+      }) =>
+        `${c.dayOfWeek}|${c.period}|${c.courseName}|${c.effectiveFrom?.toISOString() ?? ""}`;
+      const existingByKey = new Map(existing.map((e) => [keyOf(e), e]));
+      const newByKey = new Map(classes.map((c) => [keyOf(c), c]));
+
+      // 1) マッチした行は update(既存IDを保つ→ChecklistTemplate保持)
+      for (const [key, n] of newByKey.entries()) {
+        const e = existingByKey.get(key);
+        if (!e) continue;
+        await tx.classSchedule.update({
+          where: { id: e.id },
+          data: {
+            endPeriod: n.endPeriod,
+            startTime: n.startTime,
+            endTime: n.endTime,
+            classroom: n.classroom,
+            teacher: n.teacher,
+            effectiveTo: n.effectiveTo,
+            // courseName と effectiveFrom はキーなので更新不要。
+            // color は既存値を尊重(ユーザー設定を保持)。
+          },
         });
       }
-      if (classes.length > 0) {
+
+      // 2) 新規行(既存に対応なし)を insert
+      const toInsert = classes.filter((c) => !existingByKey.has(keyOf(c)));
+      if (toInsert.length > 0) {
         await tx.classSchedule.createMany({
-          data: classes.map((c) => ({
+          data: toInsert.map((c) => ({
             dayOfWeek: c.dayOfWeek,
             period: c.period,
             endPeriod: c.endPeriod,
@@ -149,6 +182,19 @@ async function doRunCitPortalSync(): Promise<CitPortalSyncResult> {
             effectiveFrom: c.effectiveFrom,
             effectiveTo: c.effectiveTo,
           })),
+        });
+      }
+
+      // 3) 削除対象(古い方にだけ存在): ChecklistTemplate を先に消してから本体削除
+      const toDeleteIds = existing
+        .filter((e) => !newByKey.has(keyOf(e)))
+        .map((e) => e.id);
+      if (toDeleteIds.length > 0) {
+        await tx.checklistTemplate.deleteMany({
+          where: { ownerType: "CLASS", ownerId: { in: toDeleteIds } },
+        });
+        await tx.classSchedule.deleteMany({
+          where: { id: { in: toDeleteIds } },
         });
       }
       replaced = classes.length;

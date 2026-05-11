@@ -49,6 +49,10 @@ export function AcademicImport() {
   const [filename, setFilename] = useState<string>("");
   const [preview, setPreview] = useState<Preview[] | null>(null);
   const [academicYear, setAcademicYear] = useState<number | null>(null);
+  // CIT モードの dryRun レスポンスは preview とは別に classDayCount を返す。
+  // 「行事プレビューは空でも 授業日(ClassDay) は計算済」の年度があるので
+  // import ボタンの活性条件は (preview に項目あり) または (classDayCount>0) とする。
+  const [previewClassDayCount, setPreviewClassDayCount] = useState<number>(0);
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -69,6 +73,7 @@ export function AcademicImport() {
     setFilename("");
     setPreview(null);
     setAcademicYear(null);
+    setPreviewClassDayCount(0);
   };
 
   const onFile = async (file: File | undefined) => {
@@ -121,6 +126,9 @@ export function AcademicImport() {
       }
       setPreview(body.preview ?? []);
       if (typeof body.academicYear === "number") setAcademicYear(body.academicYear);
+      setPreviewClassDayCount(
+        typeof body.classDayCount === "number" ? body.classDayCount : 0,
+      );
     } finally {
       setPending(false);
     }
@@ -239,7 +247,7 @@ export function AcademicImport() {
           >
             {pending && mode === "cit"
               ? "取得中..."
-              : "🏫 千葉工大 学年歴を取り込む"}
+              : "千葉工大 学年歴を取り込む"}
           </button>
           <p className="text-[11px] text-slate-500">
             学生資料室の PDF を解析します。年度切替時はもう一度押してください
@@ -271,7 +279,7 @@ export function AcademicImport() {
       )}
 
       {error && <p className="mt-2 text-xs text-rose-500">{error}</p>}
-      {message && <p className="mt-2 text-xs text-emerald-500">{message}</p>}
+      {message && <p className="mt-2 text-xs text-sky-500">{message}</p>}
 
       {/* プレビュー */}
       {preview && (
@@ -300,7 +308,7 @@ export function AcademicImport() {
                       p.kind === "EXAM"
                         ? "bg-rose-500/10 text-rose-700 dark:text-rose-300"
                         : p.kind === "HOLIDAY"
-                          ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                          ? "bg-sky-500/10 text-sky-700 dark:text-sky-300"
                           : "bg-sky-500/10 text-sky-700 dark:text-sky-300"
                     }`}
                   >
@@ -321,14 +329,30 @@ export function AcademicImport() {
             </p>
           )}
           <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => void onImport()}
-              disabled={pending || preview.length === 0}
-              className="flex-1 rounded-lg bg-sky-500 py-2 text-sm font-medium text-white disabled:opacity-50"
-            >
-              {pending ? "取り込み中..." : `${preview.length} 件を取り込み`}
-            </button>
+            {(() => {
+              // CIT モードは preview が空でも classDayCount > 0 なら ClassDay
+              // の更新があるので import を許可する。
+              // ICS モードは preview のイベント自体を入れるので空なら無意味。
+              const canCitImport =
+                mode === "cit" && previewClassDayCount > 0;
+              const canImport = preview.length > 0 || canCitImport;
+              const label =
+                preview.length > 0
+                  ? `${preview.length} 件を取り込み`
+                  : canCitImport
+                    ? `授業日 ${previewClassDayCount} 件を取り込み`
+                    : "取り込み";
+              return (
+                <button
+                  type="button"
+                  onClick={() => void onImport()}
+                  disabled={pending || !canImport}
+                  className="flex-1 rounded-lg bg-sky-500 py-2 text-sm font-medium text-white disabled:opacity-50"
+                >
+                  {pending ? "取り込み中..." : label}
+                </button>
+              );
+            })()}
             <button
               type="button"
               onClick={reset}
