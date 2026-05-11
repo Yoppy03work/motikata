@@ -32,10 +32,20 @@ export type DispatchSummary = {
 };
 
 /** PENDING のリマインダーを attempts++ で原子的に占有する。
- *  別の dispatcher が先に占有していたら count===0。 */
-async function tryClaim(reminderId: number): Promise<boolean> {
+ *  並行な dispatcher 2 つが同時に同じ行に来た場合、両方の updateMany が
+ *  `status=PENDING` だけを条件にすると count=1 / 1 になり二重送信される。
+ *  そこで「前回読み取った attempts と一致する」条件を加え、Postgres の
+ *  行ロックで先勝ち1件のみが count=1、後発は count=0 になるようにする。 */
+async function tryClaim(
+  reminderId: number,
+  prevAttempts: number,
+): Promise<boolean> {
   const res = await prisma.reminder.updateMany({
-    where: { id: reminderId, status: "PENDING" },
+    where: {
+      id: reminderId,
+      status: "PENDING",
+      attempts: prevAttempts,
+    },
     data: { attempts: { increment: 1 } },
   });
   return res.count > 0;
@@ -72,8 +82,8 @@ export async function dispatchPendingReminders(): Promise<DispatchSummary> {
   let skipped = 0;
 
   for (const r of pending) {
-    // 1) atomic claim (attempts++ with status=PENDING 条件)
-    const claimed = await tryClaim(r.id);
+    // 1) atomic claim (attempts++ with status=PENDING AND attempts=r.attempts 条件)
+    const claimed = await tryClaim(r.id, r.attempts);
     if (!claimed) {
       // 既に他の dispatcher / 並行処理が拾った
       continue;

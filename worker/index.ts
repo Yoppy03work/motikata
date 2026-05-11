@@ -9,13 +9,23 @@ if (!JOBS_TOKEN) {
   console.error("[worker] JOBS_TOKEN not set; dispatch will be skipped");
 }
 
+// 各 job に共通の最大実行時間。これを超えたら AbortController で打ち切る。
+// 設定理由: web 側が固まった時に in-flight ガード(dispatchInFlight 等)が
+// 永久に true のまま残ると以後の cron tick がスキップされ続け、通知が止まる。
+// CIT portal sync など SSO 経由の重い処理は別途 maxDuration を 120s に
+// 拡張してあるので、worker 側は余裕を持って 180s。
+const JOB_TIMEOUT_MS = 180_000;
+
 async function callJob(path: string, label: string): Promise<void> {
   if (!JOBS_TOKEN) return;
   const url = `${WEB_URL}${path}`;
+  const ctrl = new AbortController();
+  const timeout = setTimeout(() => ctrl.abort(), JOB_TIMEOUT_MS);
   try {
     const res = await fetch(url, {
       method: "POST",
       headers: { Authorization: `Bearer ${JOBS_TOKEN}` },
+      signal: ctrl.signal,
     });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
@@ -63,7 +73,15 @@ async function callJob(path: string, label: string): Promise<void> {
       console.log(`[worker] ${label}: ${parts.join(" ")}`);
     }
   } catch (e) {
-    console.error(`[worker] ${label} error:`, e instanceof Error ? e.message : e);
+    if (ctrl.signal.aborted) {
+      console.error(
+        `[worker] ${label} timed out after ${JOB_TIMEOUT_MS}ms`,
+      );
+    } else {
+      console.error(`[worker] ${label} error:`, e instanceof Error ? e.message : e);
+    }
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
