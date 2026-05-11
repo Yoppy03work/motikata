@@ -212,6 +212,12 @@ model Reminder {
   ackedAt         DateTime?
   dedupeKey       String          @unique
   attempts        Int             @default(0)
+  // dispatcher 排他用の claim タイムスタンプ。NULL = 誰も保持していない。
+  // 配信処理の途中でクラッシュした場合は古い claimedAt がそのまま残るが、
+  // pickup クエリで stale (= 5分以上前) を許容するので自動回復する。
+  // attempts とは分離: claim だけでは attempts を増やさず、実際の送信
+  // 試行(成功/失敗)時にのみ加算するため、再起動でリトライ枠を消費しない。
+  claimedAt       DateTime?
   lastError       String?
   createdAt       DateTime        @default(now())
 

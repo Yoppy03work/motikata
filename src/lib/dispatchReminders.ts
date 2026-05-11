@@ -23,6 +23,9 @@ import { APP_TZ } from "@/lib/tz";
 
 const MAX_ATTEMPTS = 3;
 const BATCH_SIZE = 50;
+// claimedAt が古ければ「クラッシュ中に放置された」と見なして再 claim を許可。
+// dispatch ジョブ自体に 180s タイムアウトを掛けているので、その十分上の値にする。
+const STALE_CLAIM_MS = 5 * 60_000;
 
 export type DispatchSummary = {
   sent: number;
@@ -31,34 +34,43 @@ export type DispatchSummary = {
   examined: number;
 };
 
-/** PENDING のリマインダーを attempts++ で原子的に占有する。
- *  並行な dispatcher 2 つが同時に同じ行に来た場合、両方の updateMany が
- *  `status=PENDING` だけを条件にすると count=1 / 1 になり二重送信される。
- *  そこで「前回読み取った attempts と一致する」条件を加え、Postgres の
- *  行ロックで先勝ち1件のみが count=1、後発は count=0 になるようにする。 */
-async function tryClaim(
-  reminderId: number,
-  prevAttempts: number,
-): Promise<boolean> {
+/** PENDING のリマインダーを claimedAt セットで原子的に占有する。
+ *  claim 時点では attempts は増やさない: 送信完了(成功/失敗)時にのみ
+ *  attempts++ する設計にして、クラッシュ/タイムアウトでリトライ枠を
+ *  無駄に消費しないようにする。
+ *
+ *  排他は claimedAt の NULL → not-NULL transition + 行ロックで実現。
+ *  既に他 dispatcher が claimedAt をセットしていれば WHERE が外れるので
+ *  count=0 で claim 失敗となる。
+ *
+ *  ただし stale (5分以上前) な claimedAt は「処理途中で消滅した」として
+ *  上書きを許可する。worker callJob が 180s でタイムアウトするので、
+ *  STALE_CLAIM_MS はその余裕の上に設定。 */
+async function tryClaim(reminderId: number): Promise<boolean> {
+  const stale = new Date(Date.now() - STALE_CLAIM_MS);
   const res = await prisma.reminder.updateMany({
     where: {
       id: reminderId,
       status: "PENDING",
-      attempts: prevAttempts,
+      OR: [{ claimedAt: null }, { claimedAt: { lt: stale } }],
     },
-    data: { attempts: { increment: 1 } },
+    data: { claimedAt: new Date() },
   });
   return res.count > 0;
 }
 
 export async function dispatchPendingReminders(): Promise<DispatchSummary> {
   const now = new Date();
+  const staleClaim = new Date(now.getTime() - STALE_CLAIM_MS);
 
   const pending = await prisma.reminder.findMany({
     where: {
       status: "PENDING",
       remindAt: { lte: now },
       attempts: { lt: MAX_ATTEMPTS },
+      // 他 dispatcher が処理中(claimedAt が新しい)行はスキップ。
+      // ただし stale な claim は処理が落ちている前提で再 pickup を許す。
+      OR: [{ claimedAt: null }, { claimedAt: { lt: staleClaim } }],
     },
     include: {
       instance: {
@@ -82,13 +94,14 @@ export async function dispatchPendingReminders(): Promise<DispatchSummary> {
   let skipped = 0;
 
   for (const r of pending) {
-    // 1) atomic claim (attempts++ with status=PENDING AND attempts=r.attempts 条件)
-    const claimed = await tryClaim(r.id, r.attempts);
+    // 1) atomic claim (claimedAt セット、attempts はまだ増やさない)
+    const claimed = await tryClaim(r.id);
     if (!claimed) {
       // 既に他の dispatcher / 並行処理が拾った
       continue;
     }
-    // claim 成功後の attempts 値(以後 update では idempotent)
+    // 送信失敗時に attempts++ する。成功時は attempts は据え置きでも問題ない
+    // (MAX_ATTEMPTS は失敗回数の上限という設計に揃える)。
     const nextAttempts = r.attempts + 1;
     const willBeFailed = nextAttempts >= MAX_ATTEMPTS;
 
@@ -103,6 +116,7 @@ export async function dispatchPendingReminders(): Promise<DispatchSummary> {
         data: {
           status: "SKIPPED",
           lastError: "task no longer OPEN",
+          claimedAt: null,
         },
       });
       skipped++;
@@ -117,6 +131,7 @@ export async function dispatchPendingReminders(): Promise<DispatchSummary> {
           data: {
             status: "SKIPPED",
             lastError: "SLACK_WEBHOOK_URL not configured",
+            claimedAt: null,
           },
         });
         skipped++;
@@ -127,15 +142,23 @@ export async function dispatchPendingReminders(): Promise<DispatchSummary> {
         await sendSlackMessage(buildSlackMessage(r.instance));
         await prisma.reminder.update({
           where: { id: r.id },
-          data: { status: "SENT", sentAt: new Date(), lastError: null },
+          data: {
+            status: "SENT",
+            sentAt: new Date(),
+            lastError: null,
+            claimedAt: null,
+          },
         });
         sent++;
       } catch (e) {
+        // 実際の送信失敗時のみ attempts++(claim 時には増やしていない)
         await prisma.reminder.update({
           where: { id: r.id },
           data: {
             status: willBeFailed ? "FAILED" : "PENDING",
+            attempts: nextAttempts,
             lastError: (e instanceof Error ? e.message : String(e)).slice(0, 500),
+            claimedAt: null,
           },
         });
         failed++;
@@ -148,7 +171,11 @@ export async function dispatchPendingReminders(): Promise<DispatchSummary> {
       if (!ok) {
         await prisma.reminder.update({
           where: { id: r.id },
-          data: { status: "SKIPPED", lastError: "VAPID 鍵が未設定です" },
+          data: {
+            status: "SKIPPED",
+            lastError: "VAPID 鍵が未設定です",
+            claimedAt: null,
+          },
         });
         skipped++;
         continue;
@@ -160,7 +187,11 @@ export async function dispatchPendingReminders(): Promise<DispatchSummary> {
           // 購読者がいない: SKIPPED(無限リトライしない)
           await prisma.reminder.update({
             where: { id: r.id },
-            data: { status: "SKIPPED", lastError: "Push 購読者がいません" },
+            data: {
+              status: "SKIPPED",
+              lastError: "Push 購読者がいません",
+              claimedAt: null,
+            },
           });
           skipped++;
           continue;
@@ -172,7 +203,9 @@ export async function dispatchPendingReminders(): Promise<DispatchSummary> {
             where: { id: r.id },
             data: {
               status: willBeFailed ? "FAILED" : "PENDING",
+              attempts: nextAttempts,
               lastError: `all push delivery failed (failed=${result.failed})`,
+              claimedAt: null,
             },
           });
           failed++;
@@ -187,6 +220,7 @@ export async function dispatchPendingReminders(): Promise<DispatchSummary> {
               result.failed > 0
                 ? `partial: delivered=${result.delivered} failed=${result.failed}`
                 : null,
+            claimedAt: null,
           },
         });
         sent++;
@@ -194,6 +228,8 @@ export async function dispatchPendingReminders(): Promise<DispatchSummary> {
         await prisma.reminder.update({
           where: { id: r.id },
           data: {
+            attempts: nextAttempts,
+            claimedAt: null,
             status: willBeFailed ? "FAILED" : "PENDING",
             lastError: (e instanceof Error ? e.message : String(e)).slice(0, 500),
           },
