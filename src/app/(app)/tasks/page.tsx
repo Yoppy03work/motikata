@@ -98,7 +98,7 @@ function WeekStats({
         </div>
       </div>
       <div className="col-span-2 flex items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 px-3 py-1.5 text-[11px] text-slate-600 dark:text-slate-400">
-        <span>📅 予定 {events} 件</span>
+        <span>予定 {events} 件</span>
         <span>·</span>
         <span>合計 {total} 件</span>
       </div>
@@ -128,9 +128,11 @@ export default async function TasksPage({
   const rangeLabel = `${format(startDate, "yyyy/M/d")} 〜 ${format(endDate, "M/d")}`;
 
   // 週合計
+  // openTotal は "未完了" の表示なので OPEN だけカウントする。
+  // SKIPPED や DONE は終わった扱い(MonthCalendar / DayDetailSheet も同じ規約)。
   const total = dates.reduce((acc, d) => acc + (byDay[d]?.length ?? 0), 0);
   const openTotal = dates.reduce(
-    (acc, d) => acc + (byDay[d]?.filter((i) => i.status !== "DONE").length ?? 0),
+    (acc, d) => acc + (byDay[d]?.filter((i) => i.status === "OPEN").length ?? 0),
     0,
   );
 

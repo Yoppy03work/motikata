@@ -891,11 +891,13 @@ function extractClassesFromTable(
   // legend から年度・前期/後期 を読む
   const legend = $table.closest("fieldset").find("legend").text().trim();
   const yearMatch = legend.match(/(\d{4})/);
+  // legend に4桁年が無い場合の fallback は JST 基準で現在年を取る。
+  // 旧コード: getUTCFullYear() + (9/24/365) > 0 の三項条件は実質常に true
+  //          なので UTC 年がそのまま使われ、cron が 04:00 JST に走った
+  //          年明け 0:00〜9:00 JST で UTC がまだ前年だと年がズレる。
   const year = yearMatch
     ? Number(yearMatch[1])
-    : new Date().getUTCFullYear() + 9 / 24 / 365 > 0
-      ? new Date().getUTCFullYear()
-      : new Date().getUTCFullYear();
+    : new Date(Date.now() + 9 * 60 * 60 * 1000).getUTCFullYear();
   const isFirstHalf = legend.includes("前期");
   const { from: effectiveFrom, to: effectiveTo } = semesterRange(
     year,
