@@ -53,21 +53,41 @@ export async function PUT(
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
-  // 既存削除 → 新規一括 insert(transaction で原子的に)
-  await prisma.$transaction([
-    prisma.checklistTemplate.deleteMany({
-      where: { ownerType: "CLASS", ownerId: classId },
-    }),
-    parsed.data.items.length > 0
-      ? prisma.checklistTemplate.createMany({
+  // ChecklistTemplate は ownerType + ownerId の緩い参照で ClassSchedule に
+  // 紐付くだけで、DB レベルの FK 制約は無い。ここで親 ClassSchedule の存在を
+  // 検証してから書き込まないと、別タブで授業を削除した後の遅延 PUT が
+  // 「孤児チェックリスト」を生成し、UI から到達不能になる。
+  // 親存在チェック + 書き換えを 1 つの transaction にまとめる。
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const parent = await tx.classSchedule.findUnique({
+        where: { id: classId },
+        select: { id: true },
+      });
+      if (!parent) return { ok: false as const };
+      await tx.checklistTemplate.deleteMany({
+        where: { ownerType: "CLASS", ownerId: classId },
+      });
+      if (parsed.data.items.length > 0) {
+        await tx.checklistTemplate.createMany({
           data: parsed.data.items.map((it, i) => ({
             ownerType: "CLASS",
             ownerId: classId,
             label: it.label.trim(),
             orderIdx: it.orderIdx ?? i,
           })),
-        })
-      : prisma.checklistTemplate.deleteMany({ where: { id: -1 } }), // no-op
-  ]);
+        });
+      }
+      return { ok: true as const };
+    });
+    if (!result.ok) {
+      return NextResponse.json(
+        { error: "class not found" },
+        { status: 404 },
+      );
+    }
+  } catch (e) {
+    throw e;
+  }
   return NextResponse.json({ ok: true, count: parsed.data.items.length });
 }
