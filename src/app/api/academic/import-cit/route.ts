@@ -91,7 +91,29 @@ export async function POST(req: Request) {
 
   // フィルタ後のイベントだけプレビューに出す(ユーザに見せるのは保持対象のみ)
   const keepEvents = events.filter((e) => shouldKeepAsAcademicEvent(e.title));
-  const classDays = computeClassDaysFromEvents(events);
+  // computeClassDaysFromEvents は対応年外(祝日テーブル未収載年)で
+  // RangeError を投げる。それを 500 にせず 422 + 明示メッセージで返す。
+  let classDays: Date[];
+  try {
+    classDays = computeClassDaysFromEvents(events);
+  } catch (e) {
+    return NextResponse.json(
+      {
+        error:
+          e instanceof RangeError
+            ? e.message
+            : e instanceof Error
+              ? `ClassDay 計算に失敗しました: ${e.message}`
+              : "ClassDay 計算に失敗しました",
+        academicYear,
+        inserted: 0,
+        skipped: 0,
+        classDayInserted: 0,
+        classDayDeleted: 0,
+      },
+      { status: 422 },
+    );
+  }
 
   if (parsed.data.dryRun) {
     return NextResponse.json({
