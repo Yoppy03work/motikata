@@ -17,6 +17,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { weekStartOf as _w, isValidYmd as _v } from "@/lib/week";
+import { matchesOn } from "@/lib/rrule";
 void _w;
 void _v;
 
@@ -26,6 +27,9 @@ export type ExpandResult = {
   classes: number;
   inserted: number;
   skipped: number;
+  // RECURRING テンプレートからの展開分(常時カウント、授業日とは独立)
+  recurringInserted: number;
+  recurringSkipped: number;
 };
 
 function jstYmd(d: Date): string {
@@ -58,12 +62,23 @@ function toJstDateTime(ymd: string, hhmm: string): Date {
 export async function expandToday(targetYmd?: string): Promise<ExpandResult> {
   const ymd = targetYmd ?? jstYmd(new Date());
 
-  // 学年歴(ClassDay)が無い日はそもそも授業をしない
+  // 学年歴(ClassDay)が無い日はそもそも授業をしない。
+  // ただし RECURRING テンプレート(毎日/毎週/毎月)は授業日と無関係に
+  // 展開するので、isClassDay=false でも recurring 分は処理する。
   const dayStart = new Date(`${ymd}T00:00:00+09:00`);
   const dayEnd = new Date(`${ymd}T23:59:59+09:00`);
   const classDay = await prisma.classDay.findUnique({ where: { date: dayStart } });
   if (!classDay) {
-    return { ymd, isClassDay: false, classes: 0, inserted: 0, skipped: 0 };
+    const r = await expandRecurringFor(ymd);
+    return {
+      ymd,
+      isClassDay: false,
+      classes: 0,
+      inserted: 0,
+      skipped: 0,
+      recurringInserted: r.inserted,
+      recurringSkipped: r.skipped,
+    };
   }
 
   const classDow = jstDowToClassDow(jstDow(ymd));
@@ -82,12 +97,15 @@ export async function expandToday(targetYmd?: string): Promise<ExpandResult> {
   });
 
   if (schedules.length === 0) {
+    const r = await expandRecurringFor(ymd);
     return {
       ymd,
       isClassDay: true,
       classes: 0,
       inserted: 0,
       skipped: 0,
+      recurringInserted: r.inserted,
+      recurringSkipped: r.skipped,
     };
   }
 
@@ -161,11 +179,80 @@ export async function expandToday(targetYmd?: string): Promise<ExpandResult> {
     }
   }
 
+  const r = await expandRecurringFor(ymd);
   return {
     ymd,
     isClassDay: true,
     classes: schedules.length,
     inserted,
     skipped,
+    recurringInserted: r.inserted,
+    recurringSkipped: r.skipped,
   };
+}
+
+/**
+ * RECURRING な TaskTemplate を ymd(JST)で評価して、マッチするものを
+ * TaskInstance に展開する。重複は (source=RECURRING, sourceExternalId=
+ * `recurring:<templateId>:<ymd>`) の unique 制約で防ぐ。
+ *
+ * dueAt は ymd の 00:00 JST + defaultDueOffsetMin で計算する。
+ * (defaultDueOffsetMin が 60*9 なら 9:00、60*22 なら 22:00 等)
+ */
+async function expandRecurringFor(
+  ymd: string,
+): Promise<{ inserted: number; skipped: number }> {
+  const templates = await prisma.taskTemplate.findMany({
+    where: { kind: "RECURRING" },
+    select: {
+      id: true,
+      title: true,
+      notes: true,
+      itemType: true,
+      required: true,
+      priority: true,
+      defaultDueOffsetMin: true,
+      rrule: true,
+    },
+  });
+
+  let inserted = 0;
+  let skipped = 0;
+  const dayStartJst = new Date(`${ymd}T00:00:00+09:00`);
+
+  for (const t of templates) {
+    if (!matchesOn(t.rrule, ymd)) continue;
+    const externalId = `recurring:${t.id}:${ymd}`;
+    const dueAt = new Date(
+      dayStartJst.getTime() + t.defaultDueOffsetMin * 60_000,
+    );
+    try {
+      await prisma.taskInstance.create({
+        data: {
+          templateId: t.id,
+          title: t.title,
+          notes: t.notes,
+          dueAt,
+          itemType: t.itemType,
+          required: t.required,
+          priority: t.priority,
+          status: "OPEN",
+          source: "RECURRING",
+          sourceExternalId: externalId,
+        },
+      });
+      inserted++;
+    } catch (e) {
+      // 並行 expand-today / 既展開の場合は P2002 で重複拒否。skipped 扱いで続行。
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === "P2002"
+      ) {
+        skipped++;
+        continue;
+      }
+      throw e;
+    }
+  }
+  return { inserted, skipped };
 }
