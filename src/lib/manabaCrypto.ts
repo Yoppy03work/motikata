@@ -2,10 +2,12 @@
 //
 // 仕様:
 //   - AES-256-GCM
-//   - 鍵: SESSION_SECRET から SHA-256 で 32B に丸める(別キーは要らない)
-//     SESSION_SECRET は 32+ 文字必須なので十分な entropy 想定
+//   - 鍵: 優先 CREDENTIAL_ENCRYPTION_KEY (32文字以上)、未設定なら
+//         従来通り SESSION_SECRET 派生(後方互換)。
+//         CREDENTIAL_ENCRYPTION_KEY を別途設定すると Cookie 鍵
+//         (SESSION_SECRET) 漏えい時にも認証情報暗号化までは漏れない。
 //   - 出力: base64url で `iv.ciphertext.authTag` を `:` 連結
-//   - SESSION_SECRET をローテートすると既存の暗号文は復号不能になる
+//   - 鍵をローテートすると既存の暗号文は復号不能になる
 //     (その場合はユーザに再入力してもらう運用)
 
 import {
@@ -14,21 +16,28 @@ import {
   createHash,
   randomBytes,
 } from "node:crypto";
+import { deriveCredentialKey } from "@/lib/credentialKey";
 
 const ALGO = "aes-256-gcm";
 const IV_LEN = 12;
 
 function key(): Buffer {
-  const s = process.env.SESSION_SECRET;
-  if (!s || s.length < 32) {
-    if (process.env.NODE_ENV === "production") {
-      throw new Error("[security] SESSION_SECRET must be set (32+ chars)");
+  return deriveCredentialKey("manaba", () => {
+    // 後方互換: 既存の暗号文を読めるように、SESSION_SECRET から
+    // 旧来通り(domain prefix なし)で鍵を導出する。
+    const s = process.env.SESSION_SECRET;
+    if (!s || s.length < 32) {
+      if (process.env.NODE_ENV === "production") {
+        throw new Error(
+          "[security] CREDENTIAL_ENCRYPTION_KEY または SESSION_SECRET を 32文字以上で設定してください",
+        );
+      }
+      return createHash("sha256")
+        .update("dev-only-fallback-for-manaba-crypto")
+        .digest();
     }
-    return createHash("sha256")
-      .update("dev-only-fallback-for-manaba-crypto")
-      .digest();
-  }
-  return createHash("sha256").update(s).digest();
+    return createHash("sha256").update(s).digest();
+  });
 }
 
 export function encryptManabaPassword(plain: string): string {
