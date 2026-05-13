@@ -3,6 +3,7 @@ import { ja } from "date-fns/locale/ja";
 import { toZonedTime, formatInTimeZone } from "date-fns-tz";
 import Link from "next/link";
 import { APP_TZ } from "@/lib/tz";
+import { isValidYmd } from "@/lib/week";
 import { getMonthlyIndicators, monthWindow } from "@/lib/indicators";
 import { getDayItems } from "@/lib/today";
 import { CalendarIcon } from "@/components/icons";
@@ -78,7 +79,10 @@ export default async function TodayPage({
   const now = new Date();
   const todayYmd = ymdJst(now);
 
-  const viewYmd = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : todayYmd;
+  // isValidYmd は実在する暦日まで検証する(2026-13-40 / 2025-02-30 等は弾く)。
+  // 不正値が来たら今日(todayYmd)にフォールバックして、parseYmd 後の format(...)
+  // が RangeError で 500 になるのを防ぐ。
+  const viewYmd = date && isValidYmd(date) ? date : todayYmd;
   const viewDate = parseYmd(viewYmd);
   const isToday = viewYmd === todayYmd;
   const showTomorrowPrep = isToday; // 他の日を見てる時は翌日プレビューなし
