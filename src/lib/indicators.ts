@@ -43,10 +43,34 @@ export async function getMonthlyIndicators(
 }
 
 export function monthWindow(aroundYmd: string): { from: string; to: string } {
-  const d = new Date(aroundYmd + "T00:00:00+09:00");
-  const start = new Date(d.getFullYear(), d.getMonth() - 1, 1);
-  const end = new Date(d.getFullYear(), d.getMonth() + 2, 0);
-  const fmt = (x: Date) =>
-    `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
-  return { from: fmt(start), to: fmt(end) };
+  // 入力 aroundYmd は JST 文脈の "YYYY-MM-DD"。
+  // 旧コードは new Date(..+09:00) → getFullYear/getMonth() という local-time
+  // ベースで月境界を出していたため、UTC サーバ上では JST 5/1 を読んで
+  // local では 4/30 → 3〜5月の window になってしまっていた。
+  //
+  // ymd 文字列を直接パースして JST 年月を取り出し、月の前後± で範囲を作る。
+  const [yStr, mStr] = aroundYmd.split("-");
+  const year = Number(yStr);
+  const month1 = Number(mStr); // 1..12
+  // 前月の 1日 〜 翌月の末日 のレンジ。
+  const start = { y: year, m: month1 - 1 };
+  while (start.m < 1) {
+    start.m += 12;
+    start.y -= 1;
+  }
+  const endMonth = { y: year, m: month1 + 1 };
+  while (endMonth.m > 12) {
+    endMonth.m -= 12;
+    endMonth.y += 1;
+  }
+  // 翌月の末日 = 翌々月の0日(JS Date 仕様)。これは day=0 で前月の最終日になる
+  // 性質を利用する。UTC ベースで計算しても day-of-month はズレないので
+  // Date.UTC を使う。
+  const endDate = new Date(Date.UTC(endMonth.y, endMonth.m, 0));
+  const endDay = endDate.getUTCDate();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return {
+    from: `${start.y}-${pad(start.m)}-01`,
+    to: `${endMonth.y}-${pad(endMonth.m)}-${pad(endDay)}`,
+  };
 }
