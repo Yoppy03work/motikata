@@ -45,6 +45,8 @@ function comparePriorityThenDue(a: TodayItem, b: TodayItem): number {
 function groupByAxis(items: TodayItem[]) {
   // 「open」(現役)は status === "OPEN" のみ。SKIPPED は終わった扱い。
   // (DayDetailSheet / 月インジケータ / 週ビューの未完了カウントと挙動を揃える)
+  // done バケットには DONE と SKIPPED の両方を含めて、Today から完全に
+  // 見えなくならないようにする(後で見返したり 戻す 操作の入り口になる)。
   const open = items.filter((i) => i.status === "OPEN");
   return {
     // 予定 (EVENT) は時刻順のまま(優先度の概念がイベントには弱い)
@@ -58,7 +60,7 @@ function groupByAxis(items: TodayItem[]) {
     optional: open
       .filter((i) => i.itemType === "TASK" && !i.required)
       .sort(comparePriorityThenDue),
-    done: items.filter((i) => i.status === "DONE"),
+    done: items.filter((i) => i.status !== "OPEN"),
   };
 }
 

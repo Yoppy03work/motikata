@@ -104,8 +104,16 @@ export async function DELETE(
   if (!Number.isInteger(id)) {
     return NextResponse.json({ error: "invalid id" }, { status: 400 });
   }
+  // ChecklistTemplate (ownerType=CLASS, ownerId=classId) は FK ではなく
+  // 緩い参照なので、ClassSchedule 削除だけだと孤児行が残る。同じ
+  // トランザクション内でクリーンアップする。
   try {
-    await prisma.classSchedule.delete({ where: { id } });
+    await prisma.$transaction(async (tx) => {
+      await tx.checklistTemplate.deleteMany({
+        where: { ownerType: "CLASS", ownerId: id },
+      });
+      await tx.classSchedule.delete({ where: { id } });
+    });
     return NextResponse.json({ ok: true });
   } catch (e) {
     if (
