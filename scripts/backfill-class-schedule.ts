@@ -45,6 +45,7 @@ async function main() {
           teacher: c.teacher,
           effectiveFrom: c.effectiveFrom,
           effectiveTo: c.effectiveTo,
+          importedFrom: "cit-portal",
         })),
       });
     });

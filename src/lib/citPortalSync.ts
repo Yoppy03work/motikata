@@ -131,10 +131,15 @@ async function doRunCitPortalSync(): Promise<CitPortalSyncResult> {
   //     削除対象の ClassSchedule に紐づく CLASS-kind TaskTemplate は連鎖削除される
   //   - 履修登録が変わって科目名が変わるとマッチしないので新規扱い(ユーザー側で
   //     チェックリストを付け直す必要があるが、これは仕様上不可避)
+  // 重要: 手動追加(importedFrom=null)の授業は同期で絶対に消さない。
+  // findMany / 削除候補の絞り込みも `importedFrom='cit-portal'` で限定する。
+  const IMPORT_TAG = "cit-portal";
   let replaced = 0;
   try {
     await prisma.$transaction(async (tx) => {
-      const existing = await tx.classSchedule.findMany();
+      const existing = await tx.classSchedule.findMany({
+        where: { importedFrom: IMPORT_TAG },
+      });
       // natural key の生成。effectiveFrom は ISO 文字列で比較(Date 同士の参照比較を避ける)
       const keyOf = (c: {
         dayOfWeek: number;
@@ -159,6 +164,7 @@ async function doRunCitPortalSync(): Promise<CitPortalSyncResult> {
             classroom: n.classroom,
             teacher: n.teacher,
             effectiveTo: n.effectiveTo,
+            importedFrom: IMPORT_TAG,
             // courseName と effectiveFrom はキーなので更新不要。
             // color は既存値を尊重(ユーザー設定を保持)。
           },
@@ -181,11 +187,13 @@ async function doRunCitPortalSync(): Promise<CitPortalSyncResult> {
             // 学期境界(前期/後期)を保存。/classes 画面で学期フィルタが効くため必須。
             effectiveFrom: c.effectiveFrom,
             effectiveTo: c.effectiveTo,
+            importedFrom: IMPORT_TAG,
           })),
         });
       }
 
-      // 3) 削除対象(古い方にだけ存在): ChecklistTemplate を先に消してから本体削除
+      // 3) 削除対象(同期由来のうち今回スクレイプ結果に無いもの)。
+      //    importedFrom=null の手動授業はここで絶対に含まれない。
       const toDeleteIds = existing
         .filter((e) => !newByKey.has(keyOf(e)))
         .map((e) => e.id);
@@ -194,7 +202,7 @@ async function doRunCitPortalSync(): Promise<CitPortalSyncResult> {
           where: { ownerType: "CLASS", ownerId: { in: toDeleteIds } },
         });
         await tx.classSchedule.deleteMany({
-          where: { id: { in: toDeleteIds } },
+          where: { id: { in: toDeleteIds }, importedFrom: IMPORT_TAG },
         });
       }
       replaced = classes.length;

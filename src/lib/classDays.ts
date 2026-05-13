@@ -11,13 +11,19 @@
 //   2. 日曜は授業日でない (土曜は CIT では授業日扱い)
 //   3. HOLIDAY 種別の AcademicEvent (= title に "休講" や "休業" を含むもの)
 //      がある日は授業日でない
-//   4. ただし title === "祝日授業日" の日は上記を上書きして授業日
+//   4. 国民の祝日(振替休日含む)は原則 授業日でない
+//   5. ただし title === "祝日授業日" の日は 2/3/4 を上書きして授業日
+//      (CIT 学年歴 PDF で「N日：祝日授業日」と明示された日)
 //
 // 注意: 成田山詣行脚 / 文化の祭典 / 津田沼祭(休講と明示されない日) は
 // PDF 上では授業日扱い(行事は行うが授業も並行)。タイトルに "休講" が
 // 含まれる日のみを除外する。
 
 import { prisma } from "@/lib/db";
+import {
+  isJapaneseHoliday,
+  isHolidayYearSupported,
+} from "@/lib/japaneseHolidays";
 
 export type ClassDayInputEvent = {
   title: string;
@@ -76,6 +82,19 @@ export function computeClassDaysFromEvents(events: ClassDayInputEvent[]): Date[]
       const jstDow = new Date(d.getTime() + 9 * 60 * 60 * 1000).getUTCDay();
       if (jstDow === 0) continue; // 日曜
       if (info?.hasHoliday) continue;
+      // 国民の祝日(振替休日含む)もデフォルトで授業日でない。
+      // 例外として「祝日授業日」と PDF に書かれた日のみが上の早期 return で
+      // 授業日として残る(ここまで降りてくる時点で 祝日授業日 ではない)。
+      // 祝日テーブルの対応年外は明示的にエラー(=黙って通常授業日扱いされ
+      // ないように)。呼び出し元の import-cit ルートで catch して 422 を返す。
+      const yearNum = Number(ymd.slice(0, 4));
+      if (!isHolidayYearSupported(yearNum)) {
+        throw new RangeError(
+          `祝日テーブルが ${yearNum} 年に対応していません。` +
+            `src/lib/japaneseHolidays.ts に追記してから再実行してください。`,
+        );
+      }
+      if (isJapaneseHoliday(ymd)) continue;
 
       result.push(jstZero(d));
     }

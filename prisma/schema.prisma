@@ -126,12 +126,19 @@ model ClassSchedule {
   color         String?
   effectiveFrom DateTime?
   effectiveTo   DateTime?
+  // この行がどこから入ってきたか。
+  //   null         : 手動追加 (UI / API 直叩き)
+  //   "cit-portal" : CITポータル同期で自動取り込み
+  // CIT同期の全置換ロジックは "cit-portal" 由来行だけを削除対象にし、
+  // 手動授業を守るために必須。
+  importedFrom  String?
   tags          ClassTag[]
   templates     TaskTemplate[]
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
   @@index([dayOfWeek, period])
+  @@index([importedFrom])
 }
 
 model ClassTag {
