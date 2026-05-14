@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { formatInTimeZone } from "date-fns-tz";
 import { APP_TZ } from "@/lib/tz";
+import { CompletionModal } from "@/components/CompletionModal";
 import type { TodayItem } from "./types";
 
 // notes 内の URL を anchor 化するためのヘルパ。
@@ -56,9 +57,14 @@ export function TodayItemCard({
 }) {
   const router = useRouter();
   const [checklist, setChecklist] = useState(item.checklist);
-  const [done, setDone] = useState(item.status === "DONE");
+  // 「閉じた状態」を done フラグで表現。DONE だけでなく SKIPPED も含む。
+  // (groupByAxis 側で SKIPPED は done バケットに分類されるが、ここで
+  //  status === "DONE" だけ見ると SKIPPED のカードに snooze ボタン等が
+  //  残ってしまい、閉じたはずのタスクに通知フローを再投入してしまう)
+  const [done, setDone] = useState(item.status !== "OPEN");
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [celebrate, setCelebrate] = useState(false);
 
   const due = new Date(item.dueAt);
   const isEvent = item.itemType === "EVENT";
@@ -89,6 +95,7 @@ export function TodayItemCard({
       const res = await fetch(`/api/tasks/${item.id}/complete`, { method: "POST" });
       if (res.ok) {
         setDone(true);
+        setCelebrate(true);
         router.refresh();
       } else {
         setError("完了処理に失敗しました");
@@ -240,7 +247,7 @@ export function TodayItemCard({
       )}
 
       {prepareMode && checklist.length > 0 && (
-        <p className="mt-1 text-[11px] text-violet-300/80">
+        <p className="mt-1 text-[11px] text-sky-300/80">
           今夜のうちにカバンに入れておく持ち物
         </p>
       )}
@@ -260,6 +267,12 @@ export function TodayItemCard({
         onClose={() => setDetailOpen(false)}
       />
     )}
+    <CompletionModal
+      open={celebrate}
+      title={item.title}
+      seedKey={String(item.id)}
+      onClose={() => setCelebrate(false)}
+    />
     </>
   );
 }
@@ -405,12 +418,12 @@ function DetailModal({
                           ? p === "HIGH"
                             ? "border-rose-500 bg-rose-500/15 text-rose-700 dark:text-rose-300"
                             : p === "MID"
-                              ? "border-amber-500 bg-amber-500/15 text-amber-700 dark:text-amber-300"
+                              ? "border-slate-500 bg-slate-500/15 text-slate-700 dark:text-slate-300"
                               : "border-slate-500 bg-slate-500/15 text-slate-700 dark:text-slate-300"
                           : "border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:border-slate-400 dark:hover:border-slate-600"
                       }`}
                     >
-                      {p === "HIGH" ? "🔴 高" : p === "MID" ? "🟡 中" : "⚪ 低"}
+                      {p === "HIGH" ? "高" : p === "MID" ? "中" : "低"}
                     </button>
                   );
                 })}
