@@ -76,10 +76,65 @@ export async function PATCH(
     );
   }
 
+  // 表示に効くフィールドが変わったかを保存前に判定しておく。
+  // 変化なし(色だけ変更など)は未来の TaskInstance を触らない。
+  const nextStartTime = parsed.data.startTime ?? existing.startTime;
+  const nextCourseName = parsed.data.courseName ?? existing.courseName;
+  const nextClassroom =
+    parsed.data.classroom === undefined
+      ? existing.classroom
+      : parsed.data.classroom;
+  const nextTeacher =
+    parsed.data.teacher === undefined ? existing.teacher : parsed.data.teacher;
+  const displayChanged =
+    existing.startTime !== nextStartTime ||
+    existing.courseName !== nextCourseName ||
+    (existing.classroom ?? null) !== (nextClassroom ?? null) ||
+    (existing.teacher ?? null) !== (nextTeacher ?? null);
+
   try {
-    const item = await prisma.classSchedule.update({
-      where: { id },
-      data: parsed.data,
+    const item = await prisma.$transaction(async (tx) => {
+      const updated = await tx.classSchedule.update({
+        where: { id },
+        data: parsed.data,
+      });
+
+      // expand-today が既に materialize 済みの未来 TaskInstance(source=CLASS,
+      // status=OPEN)を新しい表示情報で書き直す。
+      // citPortalSync の case 1 と同じ趣旨: 23:00 expand-today は
+      // class:<id>:<ymd> で既存判定→skip するので、ここで直接更新しないと
+      // 「明日の準備」カードが古い時刻/教室で出続ける。
+      if (displayChanged) {
+        const now = new Date();
+        const futureInstances = await tx.taskInstance.findMany({
+          where: {
+            source: "CLASS",
+            sourceExternalId: { startsWith: `class:${id}:` },
+            status: "OPEN",
+            dueAt: { gt: now },
+          },
+          select: { id: true, sourceExternalId: true },
+        });
+        const titleSuffix = nextClassroom ? ` @${nextClassroom}` : "";
+        const newTitle = `${nextCourseName}${titleSuffix}`;
+        const newNotes = nextTeacher ? `担当: ${nextTeacher}` : null;
+        for (const fi of futureInstances) {
+          if (!fi.sourceExternalId) continue;
+          const parts = fi.sourceExternalId.split(":");
+          const ymd = parts[2];
+          if (!ymd || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) continue;
+          const newDueAt = new Date(`${ymd}T${nextStartTime}:00+09:00`);
+          await tx.taskInstance.update({
+            where: { id: fi.id },
+            data: {
+              title: newTitle,
+              notes: newNotes,
+              dueAt: newDueAt,
+            },
+          });
+        }
+      }
+      return updated;
     });
     return NextResponse.json({ ok: true, item });
   } catch (e) {

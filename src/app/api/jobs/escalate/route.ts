@@ -10,6 +10,7 @@
 // JOBS_TOKEN 認証。worker cron が毎朝 7:00 JST に叩く想定。
 
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { requireJobsToken } from "@/lib/jobsAuth";
 
@@ -66,8 +67,23 @@ export async function POST(req: Request) {
           },
         });
         scheduled++;
-      } catch {
-        skipped++;
+      } catch (e) {
+        // 期待される race だけ skip 集計に倒し、それ以外は 500 に上げる。
+        // - P2002: 並行 escalate(手動 + cron 等)で同じ dedupeKey が
+        //   既に挿入された → 期待通り、skipped 扱い。
+        // - P2003: タスク行が同 tick 内に消された → 起こり得るので skipped。
+        // それ以外の Prisma エラーや接続エラーは黙って飲み込むと「成功して
+        // 0 件 scheduled」のように見えて、その日の朝通知が全タスク分
+        // 抜けたまま worker は次の cron まで再試行しない。500 に上げて
+        // worker のログに残し、人間に気付かせる。
+        if (
+          e instanceof Prisma.PrismaClientKnownRequestError &&
+          (e.code === "P2002" || e.code === "P2003")
+        ) {
+          skipped++;
+          continue;
+        }
+        throw e;
       }
     }
     return NextResponse.json({
