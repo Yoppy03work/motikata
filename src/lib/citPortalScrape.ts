@@ -891,14 +891,23 @@ function extractClassesFromTable(
   // legend から年度・前期/後期 を読む
   const legend = $table.closest("fieldset").find("legend").text().trim();
   const yearMatch = legend.match(/(\d{4})/);
-  // legend に4桁年が無い場合の fallback は JST 基準で現在年を取る。
-  // 旧コード: getUTCFullYear() + (9/24/365) > 0 の三項条件は実質常に true
-  //          なので UTC 年がそのまま使われ、cron が 04:00 JST に走った
-  //          年明け 0:00〜9:00 JST で UTC がまだ前年だと年がズレる。
-  const year = yearMatch
-    ? Number(yearMatch[1])
-    : new Date(Date.now() + 9 * 60 * 60 * 1000).getUTCFullYear();
   const isFirstHalf = legend.includes("前期");
+  // legend に4桁年が無い場合の fallback。
+  //
+  // semesterRange の引数 `year` の定義:
+  //   前期 → その year の 4/1 〜 9/30
+  //   後期 → その year の 10/1 〜 (year+1) の 3/31
+  // つまり 後期 を 1〜3月に同期する状況では、現在進行中の 後期 は
+  // 前年 10月始まりのもの = year = jstYear - 1 が正しい。
+  // 旧 fallback (現在 JST 年そのまま) では Feb 2026 に 後期 を同期すると
+  // Oct 2026 - Mar 2027 にずれて effectiveFrom > 今日 になり、expandToday
+  // が「今日は学期外」として授業 EVENT を作らなくなる事故が起きていた。
+  const jstNow = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  const jstYear = jstNow.getUTCFullYear();
+  const jstMonth = jstNow.getUTCMonth() + 1; // 1..12
+  const yearFallback =
+    !isFirstHalf && jstMonth <= 3 ? jstYear - 1 : jstYear;
+  const year = yearMatch ? Number(yearMatch[1]) : yearFallback;
   const { from: effectiveFrom, to: effectiveTo } = semesterRange(
     year,
     isFirstHalf,

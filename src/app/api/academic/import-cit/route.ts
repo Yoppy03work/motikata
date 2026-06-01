@@ -12,6 +12,7 @@ import { requireAuthApi } from "@/lib/authGuard";
 import { parseCitGakunenreki } from "@/lib/parseCitGakunenreki";
 import { SETTING_KEY_LAST_FETCH } from "@/lib/academicSettings";
 import { computeClassDaysFromEvents } from "@/lib/classDays";
+import { materializeAcademicEventsAsInstances } from "@/lib/materializeAcademicEvents";
 
 export const runtime = "nodejs";
 // PDF パースは pdfjs-dist の都合で Node ランタイム必須
@@ -155,6 +156,7 @@ export async function POST(req: Request) {
   // 途中で例外が出れば全部ロールバックされ、部分的な不整合を残さない。
   let insertedEvents = 0;
   let skippedEvents = 0;
+  let surfacedInstances = 0;
   const { start, end } = academicYearRange(academicYear);
   const cd = await prisma.$transaction(async (tx) => {
     if (keepEvents.length > 0) {
@@ -185,6 +187,13 @@ export async function POST(req: Request) {
             importedFrom: SOURCE_TAG,
           })),
         });
+        // カレンダー/Today から見えるよう、HOLIDAY 以外を TaskInstance(EVENT)
+        // に複製する。トランザクション内で完了させて AcademicEvent と
+        // TaskInstance の片落ちを防ぐ。
+        surfacedInstances = await materializeAcademicEventsAsInstances(
+          tx,
+          fresh,
+        );
       }
       insertedEvents = fresh.length;
       skippedEvents = keepEvents.length - fresh.length;
@@ -210,6 +219,7 @@ export async function POST(req: Request) {
     academicYear,
     inserted: insertedEvents,
     skipped: skippedEvents,
+    surfaced: surfacedInstances,
     classDayInserted: cd.inserted,
     classDayDeleted: cd.deleted,
   });

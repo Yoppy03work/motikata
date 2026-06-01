@@ -26,9 +26,20 @@ export async function POST(req: Request) {
   const from = new Date(Date.UTC(ay, 2, 31, 15, 0, 0)); // X 年 3月31日 15:00 UTC = 4月1日 JST
   const to = new Date(Date.UTC(ay + 1, 2, 31, 15, 0, 0));
 
-  const [eventDel, classDayDel] = await prisma.$transaction([
+  // import 時に materializeAcademicEventsAsInstances で複製した
+  // TaskInstance(source=ACADEMIC, sourceExternalId LIKE 'ics:...') も
+  // 同じ範囲で消す。複製は dueAt = AcademicEvent.date + 9h(JST 09:00)で
+  // 入れているので、その範囲フィルタで一致する。
+  const [eventDel, classDayDel, instanceDel] = await prisma.$transaction([
     prisma.academicEvent.deleteMany({ where: { date: { gte: from, lt: to } } }),
     prisma.classDay.deleteMany({ where: { date: { gte: from, lt: to } } }),
+    prisma.taskInstance.deleteMany({
+      where: {
+        source: "ACADEMIC",
+        sourceExternalId: { startsWith: "ics:" },
+        dueAt: { gte: from, lt: to },
+      },
+    }),
   ]);
 
   return NextResponse.json({
@@ -36,5 +47,6 @@ export async function POST(req: Request) {
     academicYear: ay,
     deleted: eventDel.count,
     classDaysDeleted: classDayDel.count,
+    instancesDeleted: instanceDel.count,
   });
 }

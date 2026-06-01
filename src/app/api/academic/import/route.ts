@@ -10,6 +10,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireAuthApi } from "@/lib/authGuard";
 import { parseIcs } from "@/lib/parseIcs";
+import { materializeAcademicEventsAsInstances } from "@/lib/materializeAcademicEvents";
 
 export const runtime = "nodejs";
 // Body 上限は CSP 経由で 2MB。学年歴 ICS は通常数十 KB なので十分。
@@ -85,9 +86,15 @@ export async function POST(req: Request) {
     })),
   });
 
+  // AcademicEvent だけだとカレンダー/Today に出ない(両画面は TaskInstance
+  // しか読まない)。HOLIDAY 以外を TaskInstance(EVENT) に複製して可視化する。
+  // 再 import 時の dedup は (source, sourceExternalId) ユニーク制約で済む。
+  const surfaced = await materializeAcademicEventsAsInstances(prisma, fresh);
+
   return NextResponse.json({
     ok: true,
     inserted: fresh.length,
     skipped: events.length - fresh.length,
+    surfaced,
   });
 }
