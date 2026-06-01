@@ -121,6 +121,19 @@ export async function DELETE(
       await tx.checklistTemplate.deleteMany({
         where: { ownerType: "CLASS", ownerId: id },
       });
+      // expand-today で先に materialize されていた未来の TaskInstance も
+      // 一緒に消す。FK が無いので明示削除しないと孤児授業 EVENT が翌日以降
+      // の Today / 「明日の準備」セクションに残る。
+      // 過去分は学習履歴/チェック進捗の記録として保持する。
+      // citPortalSync の reconciliation 経路と同じ方針。
+      const now = new Date();
+      await tx.taskInstance.deleteMany({
+        where: {
+          source: "CLASS",
+          sourceExternalId: { startsWith: `class:${id}:` },
+          dueAt: { gt: now },
+        },
+      });
       await tx.classSchedule.delete({ where: { id } });
       return true;
     });

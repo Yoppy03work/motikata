@@ -170,6 +170,14 @@ async function doRunCitPortalSync(): Promise<CitPortalSyncResult> {
       const newByKey = new Map(classes.map((c) => [keyOf(c), c]));
 
       // 1) マッチした行は update(既存IDを保つ→ChecklistTemplate保持)
+      //
+      // 注意: ClassSchedule の startTime / classroom / teacher が変わっても、
+      // expand-today で先に materialize されていた未来の TaskInstance は
+      // 古い title / dueAt のままになる。23:00 expand-today は
+      // sourceExternalId=`class:<id>:<ymd>` で既存検知→skip するので、
+      // schedule 更新だけだと「明日の準備」カードに古い情報が残り続ける。
+      // ここで対応する未来の TaskInstance(status=OPEN のみ)も同期する。
+      const now = new Date();
       for (const [key, n] of newByKey.entries()) {
         const e = existingByKey.get(key);
         if (!e) continue;
@@ -187,6 +195,45 @@ async function doRunCitPortalSync(): Promise<CitPortalSyncResult> {
             // color は既存値を尊重(ユーザー設定を保持)。
           },
         });
+
+        // 表示情報が変わったかをまず判定。変化なしならスキャンを省略する。
+        const titleSuffix = n.classroom ? ` @${n.classroom}` : "";
+        const nextTitle = `${n.courseName}${titleSuffix}`;
+        const nextNotes = n.teacher ? `担当: ${n.teacher}` : null;
+        const detailsChanged =
+          e.startTime !== n.startTime ||
+          (e.classroom ?? null) !== (n.classroom ?? null) ||
+          (e.teacher ?? null) !== (n.teacher ?? null) ||
+          (e.courseName ?? "") !== (n.courseName ?? "");
+        if (!detailsChanged) continue;
+
+        const futureInstances = await tx.taskInstance.findMany({
+          where: {
+            source: "CLASS",
+            sourceExternalId: { startsWith: `class:${e.id}:` },
+            status: "OPEN",
+            dueAt: { gt: now },
+          },
+          select: { id: true, sourceExternalId: true },
+        });
+        for (const fi of futureInstances) {
+          // externalId = `class:<scheduleId>:<ymd>`。ymd を取り出して
+          // 新しい startTime と組み合わせる(JST 文脈)。
+          if (!fi.sourceExternalId) continue;
+          const parts = fi.sourceExternalId.split(":");
+          const ymd = parts[2];
+          // ymd フォーマットは "YYYY-MM-DD" を想定。万一壊れていたら触らない。
+          if (!ymd || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) continue;
+          const newDueAt = new Date(`${ymd}T${n.startTime}:00+09:00`);
+          await tx.taskInstance.update({
+            where: { id: fi.id },
+            data: {
+              title: nextTitle,
+              notes: nextNotes,
+              dueAt: newDueAt,
+            },
+          });
+        }
       }
 
       // 2) 新規行(既存に対応なし)を insert
@@ -230,11 +277,10 @@ async function doRunCitPortalSync(): Promise<CitPortalSyncResult> {
         // ただし過去分(dueAt < now)は学習履歴/完了状態の記録として残す。
         // CASE WHEN scheduleId IN (toDeleteIds) ... を表現するため、
         // OR の startsWith 配列で限定する。
-        const futureCutoff = new Date();
         await tx.taskInstance.deleteMany({
           where: {
             source: "CLASS",
-            dueAt: { gt: futureCutoff },
+            dueAt: { gt: now },
             OR: toDeleteIds.map((id) => ({
               sourceExternalId: { startsWith: `class:${id}:` },
             })),

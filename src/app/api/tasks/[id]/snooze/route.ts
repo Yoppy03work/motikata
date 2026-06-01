@@ -23,9 +23,17 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
 
   try {
     const result = await prisma.$transaction(async (tx) => {
-      // 既存の未送信リマインダーをSKIPPED(後回しのため)
+      // 既存の未送信リマインダーをSKIPPED(後回しのため)。
+      // dispatch が claim 中(claimedAt が新しい)の行は触らない。送信中の
+      // PENDING を SKIPPED に書き換えると dispatch 側の CAS と衝突する。
+      // 詳細は src/lib/dispatchReminders.ts のヘッダコメント参照。
+      const staleClaim = new Date(Date.now() - 5 * 60_000);
       await tx.reminder.updateMany({
-        where: { instanceId: id, status: "PENDING" },
+        where: {
+          instanceId: id,
+          status: "PENDING",
+          OR: [{ claimedAt: null }, { claimedAt: { lt: staleClaim } }],
+        },
         data: { status: "SKIPPED" },
       });
 

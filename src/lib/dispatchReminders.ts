@@ -10,24 +10,38 @@
 //     claim 時点では attempts は増やさず、送信成功/失敗時にのみ attempts++ する
 //     設計にして、クラッシュやタイムアウトでリトライ枠を浪費しない。
 //
-//   - 完了競合の防止 (Codex P2 3333055217):
-//     旧版は「send 前に instance.status を読む」「send 後に Reminder を SENT に
-//     書き込む」を別トランザクションで行っていたため、送信中にユーザが
-//     /api/tasks/[id]/complete を叩いた場合、completion が Reminder を
-//     PENDING→SKIPPED に書いた直後に dispatch が SKIPPED→SENT に上書きして
-//     終わるレースが残っていた。さらに古い通知が外部に飛んでいた。
+//   - 完了競合の防止 (Codex P2 3333055217 / 3333105585):
+//     旧旧版は「send 前に instance.status を読む」「send 後に Reminder を SENT に
+//     書き込む」を別トランザクションで行っていて、completion が PENDING→SKIPPED
+//     に書いた直後に dispatch が SKIPPED→SENT に上書きするレースが残っていた。
+//     旧版(その対策)では tx 内で Reminder を pre-mark SENT に倒していたが、
+//     pre-mark commit 直後に dispatch プロセスがクラッシュすると status=SENT が
+//     永続化されてしまい、外部送信が一度も走っていないのに pickup query
+//     (PENDING のみ)から漏れて永久に届かなくなる障害があった。
 //
-//     対策: 送信前に TaskInstance 行を SELECT ... FOR UPDATE でロックし、
-//     OPEN を確認した上で「同じ tx 内で」Reminder を先に SENT(暫定確定) に
-//     遷移させる。completion 側の updateMany は status=PENDING を WHERE に
-//     持つので、この pre-mark によって以後マッチしなくなる。
-//     completion が先に commit していれば SELECT FOR UPDATE は DONE/SKIPPED を
-//     読み、dispatch は送信を諦めて Reminder を SKIPPED に倒す。
+//     現在の方針:
+//       1. dispatch は tryClaim で claimedAt をセットしただけの状態(status は
+//          PENDING のまま)で次に進む。claimedAt は「送信中である」マーカー。
+//       2. 送信前に TaskInstance 行を SELECT ... FOR UPDATE でロックして
+//          status を再確認。OPEN でなければ Reminder を SKIPPED に倒して終了。
+//       3. OPEN ならロックを解放して外部送信を実行。送信中に completion が
+//          走っても、completion は claimedAt が新しい PENDING を保護対象
+//          として除外する(後述の completion 側の WHERE 条件)。よって完了
+//          後に dispatch が status=PENDING のままの行に対してのみ SENT を
+//          書ける。完了が先に来ていれば、dispatch の FOR UPDATE 再確認で
+//          DONE を見て SKIPPED に倒すパスに入る。
+//       4. dispatch がクラッシュして claimedAt が残っても、status は
+//          PENDING のままなので pickup query は STALE_CLAIM_MS 経過後に
+//          再 pickup する。外部送信が一度も走っていなければ再送され、
+//          通知が消える事故にならない(at-least-once)。送信済みだった
+//          場合は二重配信になり得るが、稀かつ通知の二重通知は失通知より
+//          ましという判断。
 //
-//     外部送信は tx の外で行う。送信失敗時は Reminder を PENDING/FAILED に
-//     戻す(逆遷移)。外部 HTTP を tx 内で抱えるとロック保持時間が伸びて
-//     completion 側を不必要に長く待たせるので、その妥協で「送信中に completion
-//     が起きた場合は外部通知が 1 回飛ぶ」までは許容する。
+//     completion (/api/tasks/[id]/complete) 側の更新:
+//       Reminder.status=PENDING を SKIPPED に倒す updateMany には
+//       「claimedAt IS NULL OR claimedAt < stale」の AND を追加する。
+//       これによって dispatch が claim 中(claimedAt 新しい)の行は
+//       completion からは触らない。そのまま dispatch に処理を委ねる。
 //
 //   - Push が「購読者あり・全件配信失敗」のケースは SENT ではなく PENDING/FAILED
 //     扱いにして再試行を許容する。
@@ -123,15 +137,14 @@ export async function dispatchPendingReminders(): Promise<DispatchSummary> {
     const nextAttempts = r.attempts + 1;
     const willBeFailed = nextAttempts >= MAX_ATTEMPTS;
 
-    // 2) TaskInstance を FOR UPDATE ロックして status を再確認し、
-    //    OPEN なら同じ tx 内で Reminder を pre-mark SENT に倒す。
-    //    completion(POST /api/tasks/[id]/complete)は TaskInstance を
-    //    update することで同じ行ロックを取りに来るので、ここで serialize される。
-    //    completion が先に commit していたら status は DONE/SKIPPED として
-    //    見え、proceed=false で送信中止 → Reminder を SKIPPED に。
-    //    dispatch が先にロックを取れた場合は Reminder.status を PENDING→SENT
-    //    に進めて commit するので、completion 側の updateMany WHERE status=
-    //    PENDING にはマッチしなくなり、SKIPPED に書き戻されることもない。
+    // 2) TaskInstance を FOR UPDATE ロックして status を再確認。
+    //    completion (/api/tasks/[id]/complete) は TaskInstance.update を
+    //    1番目にやるので同じ行ロックを取りに来る → ここで serialize される。
+    //    completion が既に commit していれば status=DONE/SKIPPED が読めて、
+    //    Reminder を SKIPPED にして終了。送信は走らない。
+    //    OPEN ならロックを解放して送信に進む。tryClaim で claimedAt は既に
+    //    新しい値が入っているので、send 中の completion はその Reminder を
+    //    保護対象外として除外する(completion 側で claimedAt 条件を見る)。
     const proceed = await prisma.$transaction(async (tx) => {
       const locked = await tx.$queryRaw<{ status: string }[]>`
         SELECT status FROM "TaskInstance" WHERE id = ${r.instance.id} FOR UPDATE
@@ -147,12 +160,6 @@ export async function dispatchPendingReminders(): Promise<DispatchSummary> {
         });
         return false;
       }
-      // pre-mark SENT。送信前に倒すことで completion の updateMany から逃げる。
-      // sentAt は実際の送信成功後に上書きするので、ここでは仮値として now を入れる。
-      await tx.reminder.update({
-        where: { id: r.id },
-        data: { status: "SENT", sentAt: new Date(), lastError: null },
-      });
       return true;
     });
     if (!proceed) {
@@ -161,14 +168,18 @@ export async function dispatchPendingReminders(): Promise<DispatchSummary> {
     }
 
     // 3) チャネル別に送信(tx の外で実行。ロック保持時間を縮める)
+    //    送信成功時は updateMany WHERE status=PENDING で「まだ PENDING な
+    //    場合のみ SENT に倒す」CAS を実行。completion (rare) が間に
+    //    入って SKIPPED に倒していたら count===0 となり上書きしない。
+    //    送信失敗時は claimedAt をクリアし attempts++ で次回再試行を許す。
+    //    クラッシュで途中で消えても status=PENDING のままなので
+    //    pickup query が STALE_CLAIM_MS 経過後に拾い直して再送する。
     if (r.channel === "SLACK") {
       if (!isSlackEnabled()) {
-        // 設定不足は pre-mark SENT を取り消して SKIPPED に倒す。
         await prisma.reminder.update({
           where: { id: r.id },
           data: {
             status: "SKIPPED",
-            sentAt: null,
             lastError: "SLACK_WEBHOOK_URL not configured",
             claimedAt: null,
           },
@@ -179,23 +190,28 @@ export async function dispatchPendingReminders(): Promise<DispatchSummary> {
 
       try {
         await sendSlackMessage(buildSlackMessage(r.instance));
-        // 既に pre-mark SENT 済み。sentAt と claimedAt をクリーンアップ。
-        await prisma.reminder.update({
-          where: { id: r.id },
+        const upd = await prisma.reminder.updateMany({
+          where: { id: r.id, status: "PENDING" },
           data: {
+            status: "SENT",
             sentAt: new Date(),
             lastError: null,
             claimedAt: null,
           },
         });
-        sent++;
+        if (upd.count > 0) {
+          sent++;
+        } else {
+          // completion が間に挟まって SKIPPED に倒した稀ケース。送信自体は
+          // 既に外部に飛んでいるので「送れた」扱いにせず skipped 集計のみ。
+          // status は completion 側の決定を尊重して触らない。
+          skipped++;
+        }
       } catch (e) {
-        // 送信失敗 → pre-mark を逆遷移して PENDING/FAILED に戻す。
         await prisma.reminder.update({
           where: { id: r.id },
           data: {
             status: willBeFailed ? "FAILED" : "PENDING",
-            sentAt: null,
             attempts: nextAttempts,
             lastError: (e instanceof Error ? e.message : String(e)).slice(0, 500),
             claimedAt: null,
@@ -213,7 +229,6 @@ export async function dispatchPendingReminders(): Promise<DispatchSummary> {
           where: { id: r.id },
           data: {
             status: "SKIPPED",
-            sentAt: null,
             lastError: "VAPID 鍵が未設定です",
             claimedAt: null,
           },
@@ -230,7 +245,6 @@ export async function dispatchPendingReminders(): Promise<DispatchSummary> {
             where: { id: r.id },
             data: {
               status: "SKIPPED",
-              sentAt: null,
               lastError: "Push 購読者がいません",
               claimedAt: null,
             },
@@ -245,7 +259,6 @@ export async function dispatchPendingReminders(): Promise<DispatchSummary> {
             where: { id: r.id },
             data: {
               status: willBeFailed ? "FAILED" : "PENDING",
-              sentAt: null,
               attempts: nextAttempts,
               lastError: `all push delivery failed (failed=${result.failed})`,
               claimedAt: null,
@@ -254,9 +267,10 @@ export async function dispatchPendingReminders(): Promise<DispatchSummary> {
           failed++;
           continue;
         }
-        await prisma.reminder.update({
-          where: { id: r.id },
+        const upd = await prisma.reminder.updateMany({
+          where: { id: r.id, status: "PENDING" },
           data: {
+            status: "SENT",
             sentAt: new Date(),
             lastError:
               result.failed > 0
@@ -265,7 +279,11 @@ export async function dispatchPendingReminders(): Promise<DispatchSummary> {
             claimedAt: null,
           },
         });
-        sent++;
+        if (upd.count > 0) {
+          sent++;
+        } else {
+          skipped++;
+        }
       } catch (e) {
         await prisma.reminder.update({
           where: { id: r.id },
@@ -273,7 +291,6 @@ export async function dispatchPendingReminders(): Promise<DispatchSummary> {
             attempts: nextAttempts,
             claimedAt: null,
             status: willBeFailed ? "FAILED" : "PENDING",
-            sentAt: null,
             lastError: (e instanceof Error ? e.message : String(e)).slice(0, 500),
           },
         });

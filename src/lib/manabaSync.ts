@@ -104,11 +104,20 @@ export async function runManabaSync(): Promise<ManabaSyncResult> {
   }
 
   const now = new Date();
-  const target = assignments.filter((a) => a.dueAt && a.dueAt > now);
-  const pastSkipped = assignments.filter(
-    (a) => a.dueAt && a.dueAt <= now,
-  ).length;
-  const noDueSkipped = assignments.filter((a) => !a.dueAt).length;
+  // dueAt が無い行はそもそも識別子も振りようがないのでここでスキップ。
+  const withDue = assignments.filter((a) => !!a.dueAt);
+  const noDueSkipped = assignments.length - withDue.length;
+  // 旧版は ここで「dueAt > now」だけを target にして past を完全に捨てていた。
+  // しかし教員が締切を「未来 → 過去(短縮)」に動かしたケースでは、DB 上の
+  // 既存 OPEN 行は古い未来の dueAt のまま残り、cleanup ジョブの dueAt<now
+  // 条件にも引っかからず、stale な通知が発火し続けていた。
+  // 修正方針: 全 assignment(過去/未来問わず)を update ループに流す。
+  //   - 既存行があれば dueAt を上書きする(未来から過去への変更を反映)。
+  //     → status=OPEN かつ過去 dueAt になった行は次の cleanup-past-tasks で消える。
+  //   - 既存行が無い新規 assignment は、過去の dueAt の場合のみ insert を抑止。
+  //     (parseDueDate の yearless rollover 抑制と同じ「ファントム課題」防止)
+  const target = withDue;
+  let pastSkipped = 0; // 「過去 dueAt の新規 → insert 抑止」だけを集計する。
 
   let inserted = 0;
   let updated = 0;
@@ -203,6 +212,13 @@ export async function runManabaSync(): Promise<ManabaSyncResult> {
     });
     if (legacyDone) {
       skipped++;
+      continue;
+    }
+    // ここまで来た = 新規 assignment(対応する既存 TaskInstance が無い)。
+    // 過去 dueAt の新規行は insert しない: 「閉じている課題」「年なし日付の
+    // 誤推定」を ファントムタスクとして materialize するのを避ける。
+    if (a.dueAt! <= now) {
+      pastSkipped++;
       continue;
     }
     try {
