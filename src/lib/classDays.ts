@@ -33,11 +33,24 @@ export type ClassDayInputEvent = {
 
 type Boundary = { start?: Date; end?: Date };
 
+export type SemesterBoundarySummary = {
+  firstSemester: Boundary;
+  secondSemester: Boundary;
+  /** 4 つの境界マーカー(前期開始/前期終了/後期開始/後期終了)が全部揃っていれば true */
+  complete: boolean;
+  /** 揃っていなかった boundary の人間向けラベル */
+  missing: string[];
+};
+
 /**
- * 在メモリの events 配列から授業日(JST)の Date 一覧を計算する。
- * Date は JST 0:00 を表す UTC instant(jstDate と同じ慣習)。
+ * イベント列から学期境界マーカー(前期/後期 の授業開始・終了)を抽出して
+ * 揃い具合を返す。computeClassDaysFromEvents は片側だけでも黙って動くので、
+ * full-year replace のような破壊的 import を行うルートはここで完全性を
+ * 検証してから走らせる。
  */
-export function computeClassDaysFromEvents(events: ClassDayInputEvent[]): Date[] {
+export function detectSemesterBoundaries(
+  events: ClassDayInputEvent[],
+): SemesterBoundarySummary {
   const firstSemester: Boundary = {};
   const secondSemester: Boundary = {};
   for (const e of events) {
@@ -46,6 +59,25 @@ export function computeClassDaysFromEvents(events: ClassDayInputEvent[]): Date[]
     else if (e.title.includes("後期授業開始")) secondSemester.start = e.date;
     else if (e.title.includes("後期授業終了")) secondSemester.end = e.date;
   }
+  const missing: string[] = [];
+  if (!firstSemester.start) missing.push("前期授業開始");
+  if (!firstSemester.end) missing.push("前期授業終了");
+  if (!secondSemester.start) missing.push("後期授業開始");
+  if (!secondSemester.end) missing.push("後期授業終了");
+  return {
+    firstSemester,
+    secondSemester,
+    complete: missing.length === 0,
+    missing,
+  };
+}
+
+/**
+ * 在メモリの events 配列から授業日(JST)の Date 一覧を計算する。
+ * Date は JST 0:00 を表す UTC instant(jstDate と同じ慣習)。
+ */
+export function computeClassDaysFromEvents(events: ClassDayInputEvent[]): Date[] {
+  const { firstSemester, secondSemester } = detectSemesterBoundaries(events);
 
   // 日別に「休講か」「祝日授業日として強制 ON か」を集計
   type DayInfo = {

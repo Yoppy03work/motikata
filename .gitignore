@@ -20,3 +20,8 @@ tsconfig.tsbuildinfo
 
 # 開発用の機密サンプル(HAR、パスワード入りログ、スクレイプサンプル HTML/PDF など)
 tmp/
+
+# scripts/backup-db.sh の既定の出力先。DB の完全ダンプ(ユーザデータ + 暗号化
+# 認証情報を含む)なので、誤コミット防止のため明示的に除外する。
+backups/
+*.sql.gz

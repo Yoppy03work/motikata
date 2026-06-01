@@ -29,6 +29,8 @@ export type ManabaSyncResult =
       inserted: number;
       updated: number;
       skipped: number;
+      /** 取消し / 取り下げ済み(スクレイプに出なかった既存 OPEN 行) */
+      canceled: number;
     }
   | {
       ok: false;
@@ -248,6 +250,51 @@ export async function runManabaSync(): Promise<ManabaSyncResult> {
     }
   }
 
+  // 取り消し検知: スクレイプ結果に現れなくなった既存 OPEN 行は、教員が
+  // 課題を削除/取り下げ/withdraw した可能性が高い。そのまま放置すると
+  // 古い deadline で通知が飛ぶし、cleanup-past-tasks はその deadline を
+  // 超えるまで消してくれない。
+  //
+  // 戦略: 「今回スクレイプで生きていた externalId」のセットを作り、それ
+  // 以外で source=ACADEMIC + status=OPEN + manaba プレフィクスのものを
+  // SKIPPED に倒す。紐づく未送信 Reminder も SKIPPED にする(ただし
+  // dispatch 中のものは触らない: completion endpoint と同じ claimedAt
+  // 保護を踏襲)。
+  //
+  // 注意: 上の update ループで legacy adoption により sourceExternalId を
+  // 新キー(externalIdOf(a))に書き換えているので、ここでは「livesExternalIds
+  // が新キーだけ」で確認すれば足りる。
+  const liveExternalIds = target.map((a) => externalIdOf(a));
+  const orphans = await prisma.taskInstance.findMany({
+    where: {
+      source: "ACADEMIC",
+      status: "OPEN",
+      sourceExternalId: { startsWith: "manaba:" },
+      NOT: { sourceExternalId: { in: liveExternalIds } },
+    },
+    select: { id: true },
+  });
+  let canceled = 0;
+  if (orphans.length > 0) {
+    const orphanIds = orphans.map((o) => o.id);
+    const upd = await prisma.taskInstance.updateMany({
+      where: { id: { in: orphanIds }, status: "OPEN" },
+      data: { status: "SKIPPED" },
+    });
+    canceled = upd.count;
+    // 紐づく未送信通知も止める。dispatch 進行中(claimedAt 新しい)は触らず、
+    // dispatch 側の TaskInstance.status=SKIPPED 再確認で SKIPPED へ倒される。
+    const staleClaim = new Date(Date.now() - 5 * 60_000);
+    await prisma.reminder.updateMany({
+      where: {
+        instanceId: { in: orphanIds },
+        status: "PENDING",
+        OR: [{ claimedAt: null }, { claimedAt: { lt: staleClaim } }],
+      },
+      data: { status: "SKIPPED" },
+    });
+  }
+
   await prisma.manabaCredential.update({
     where: { id: cred.id },
     data: { lastSyncedAt: new Date(), lastError: null },
@@ -262,5 +309,6 @@ export async function runManabaSync(): Promise<ManabaSyncResult> {
     inserted,
     updated,
     skipped,
+    canceled,
   };
 }

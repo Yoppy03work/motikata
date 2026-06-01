@@ -11,7 +11,10 @@ import { prisma } from "@/lib/db";
 import { requireAuthApi } from "@/lib/authGuard";
 import { parseCitGakunenreki } from "@/lib/parseCitGakunenreki";
 import { SETTING_KEY_LAST_FETCH } from "@/lib/academicSettings";
-import { computeClassDaysFromEvents } from "@/lib/classDays";
+import {
+  computeClassDaysFromEvents,
+  detectSemesterBoundaries,
+} from "@/lib/classDays";
 import { materializeAcademicEventsAsInstances } from "@/lib/materializeAcademicEvents";
 
 export const runtime = "nodejs";
@@ -96,6 +99,34 @@ export async function POST(req: Request) {
 
   // フィルタ後のイベントだけプレビューに出す(ユーザに見せるのは保持対象のみ)
   const keepEvents = events.filter((e) => shouldKeepAsAcademicEvent(e.title));
+
+  // 学期境界の完全性を先に検証する。computeClassDaysFromEvents は片方の
+  // 学期境界が欠けていても黙って取れる方だけ計算するので、その後の
+  // full-year replace で「無事な学期の ClassDay が消える」破壊的ロスに
+  // 直結する(例: PDF レイアウト変更で 後期授業終了 だけ取れず、残りの
+  // 行から前期分の ClassDay を計算 → 学年度全範囲の deleteMany → 後期
+  // ClassDay も巻き添えで消滅)。
+  // 4 つの境界マーカーが全部見える時だけ書き込みに進む。
+  const boundary = detectSemesterBoundaries(events);
+  if (!boundary.complete) {
+    return NextResponse.json(
+      {
+        error:
+          "学期境界マーカーの一部が PDF から検出できませんでした(" +
+          `欠落: ${boundary.missing.join(", ")})。` +
+          "片側だけで full-year replace を走らせると無事な学期の ClassDay が" +
+          "消えるため、書き込みを中止しました。" +
+          "PDF レイアウト変更の可能性があるため、dryRun でプレビューを確認してください。",
+        academicYear,
+        inserted: 0,
+        skipped: 0,
+        classDayInserted: 0,
+        classDayDeleted: 0,
+      },
+      { status: 422 },
+    );
+  }
+
   // computeClassDaysFromEvents は対応年外(祝日テーブル未収載年)で
   // RangeError を投げる。それを 500 にせず 422 + 明示メッセージで返す。
   let classDays: Date[];
