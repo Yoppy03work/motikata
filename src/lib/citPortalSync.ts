@@ -219,6 +219,27 @@ async function doRunCitPortalSync(): Promise<CitPortalSyncResult> {
         await tx.checklistTemplate.deleteMany({
           where: { ownerType: "CLASS", ownerId: { in: toDeleteIds } },
         });
+        // expand-today で先に作られていた未来分の TaskInstance(source=CLASS,
+        // sourceExternalId=`class:<scheduleId>:<ymd>`)も一緒に消す。
+        // 例: 17:00 JST tick で翌日分が作られた後、19:00 JST の cit-portal-sync が
+        // 履修削除を検知して該当 ClassSchedule を消すと、紐づく TaskInstance が
+        // 緩い参照(FK 無し)で残り、明日の Today 画面の「予定」セクションに
+        // 幽霊授業として出続けてしまう。23:00 expand-today も対象 schedule が
+        // もう selected されないので修復できない。
+        //
+        // ただし過去分(dueAt < now)は学習履歴/完了状態の記録として残す。
+        // CASE WHEN scheduleId IN (toDeleteIds) ... を表現するため、
+        // OR の startsWith 配列で限定する。
+        const futureCutoff = new Date();
+        await tx.taskInstance.deleteMany({
+          where: {
+            source: "CLASS",
+            dueAt: { gt: futureCutoff },
+            OR: toDeleteIds.map((id) => ({
+              sourceExternalId: { startsWith: `class:${id}:` },
+            })),
+          },
+        });
         await tx.classSchedule.deleteMany({
           where: { id: { in: toDeleteIds }, importedFrom: IMPORT_TAG },
         });
