@@ -107,13 +107,26 @@ export async function DELETE(
   // ChecklistTemplate (ownerType=CLASS, ownerId=classId) は FK ではなく
   // 緩い参照なので、ClassSchedule 削除だけだと孤児行が残る。同じ
   // トランザクション内でクリーンアップする。
+  //
+  // 並行 PUT /api/classes/[id]/items との race を避けるため、まず親行に
+  // SELECT FOR UPDATE で排他ロックを取り、続いて templates と class 本体を
+  // 消す。PUT 側も同じ順序(親 FOR UPDATE → templates → ...)でロックを
+  // 取るので deadlock せず serialize される。
   try {
-    await prisma.$transaction(async (tx) => {
+    const ok = await prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<{ id: number }[]>`
+        SELECT id FROM "ClassSchedule" WHERE id = ${id} FOR UPDATE
+      `;
+      if (locked.length === 0) return false;
       await tx.checklistTemplate.deleteMany({
         where: { ownerType: "CLASS", ownerId: id },
       });
       await tx.classSchedule.delete({ where: { id } });
+      return true;
     });
+    if (!ok) {
+      return NextResponse.json({ error: "not found" }, { status: 404 });
+    }
     return NextResponse.json({ ok: true });
   } catch (e) {
     if (

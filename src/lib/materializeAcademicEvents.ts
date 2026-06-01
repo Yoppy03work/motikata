@@ -19,9 +19,19 @@
 //   - dueAt は AcademicEvent.date を JST 09:00 にずらして「朝の予定」として
 //     並べる。終日扱いだが、Today 上で時刻表示があるので 9:00 が読みやすい。
 //
+// 並行制御:
+//   呼び出し元(import / import-cit)は $transaction の中でこの関数を呼ぶ。
+//   旧版は create を 1 件ずつ走らせて P2002 を握りつぶしていたが、
+//   Postgres は unique 違反でトランザクション全体を aborted 状態にするので、
+//   その後に続く classDay.deleteMany や別の materialize 行が
+//   "current transaction is aborted" で落ちる事故になっていた。
+//   対策として createMany({ skipDuplicates: true }) を使う。Prisma は
+//   Postgres 上で ON CONFLICT DO NOTHING に展開してくれるので、unique
+//   制約違反でトランザクションを壊さずに dedup できる。
+//
 // 戻り値: 新規に作成した TaskInstance の件数。
 
-import { Prisma, type PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 
 export type MaterializableAcademicEvent = {
   title: string;
@@ -38,41 +48,26 @@ export async function materializeAcademicEventsAsInstances(
   const surfaceable = events.filter((e) => e.kind !== "HOLIDAY");
   if (surfaceable.length === 0) return 0;
 
-  let created = 0;
-  for (const e of surfaceable) {
+  const data = surfaceable.map((e) => {
     const externalId = `ics:${e.date.toISOString()}:${e.title}`;
     // JST 09:00 にシフト: e.date は JST 0:00 (UTC 前日 15:00) を表す Date。
     // そのまま +9h すると JST 09:00 = UTC 0:00。
     const dueAt = new Date(e.date.getTime() + 9 * 60 * 60 * 1000);
+    return {
+      title: e.title,
+      dueAt,
+      itemType: "EVENT" as const,
+      required: false,
+      priority: "LOW" as const,
+      status: "OPEN" as const,
+      source: "ACADEMIC" as const,
+      sourceExternalId: externalId,
+    };
+  });
 
-    // (source, sourceExternalId) は @@unique なので create で P2002 を
-    // catch すれば dedup できる。先に findUnique しても race で抜けるので
-    // 例外ベースで素朴に処理する。
-    try {
-      await tx.taskInstance.create({
-        data: {
-          title: e.title,
-          dueAt,
-          itemType: "EVENT",
-          required: false,
-          priority: "LOW",
-          status: "OPEN",
-          source: "ACADEMIC",
-          sourceExternalId: externalId,
-        },
-      });
-      created++;
-    } catch (err) {
-      // P2002 = (source, sourceExternalId) ユニーク制約違反 → 既に作成済み
-      // (再 import)。dedup として握りつぶす。それ以外は再 throw。
-      if (
-        err instanceof Prisma.PrismaClientKnownRequestError &&
-        err.code === "P2002"
-      ) {
-        continue;
-      }
-      throw err;
-    }
-  }
-  return created;
+  const res = await tx.taskInstance.createMany({
+    data,
+    skipDuplicates: true,
+  });
+  return res.count;
 }

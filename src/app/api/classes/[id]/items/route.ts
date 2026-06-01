@@ -57,37 +57,38 @@ export async function PUT(
   // 紐付くだけで、DB レベルの FK 制約は無い。ここで親 ClassSchedule の存在を
   // 検証してから書き込まないと、別タブで授業を削除した後の遅延 PUT が
   // 「孤児チェックリスト」を生成し、UI から到達不能になる。
-  // 親存在チェック + 書き換えを 1 つの transaction にまとめる。
-  try {
-    const result = await prisma.$transaction(async (tx) => {
-      const parent = await tx.classSchedule.findUnique({
-        where: { id: classId },
-        select: { id: true },
-      });
-      if (!parent) return { ok: false as const };
-      await tx.checklistTemplate.deleteMany({
-        where: { ownerType: "CLASS", ownerId: classId },
-      });
-      if (parsed.data.items.length > 0) {
-        await tx.checklistTemplate.createMany({
-          data: parsed.data.items.map((it, i) => ({
-            ownerType: "CLASS",
-            ownerId: classId,
-            label: it.label.trim(),
-            orderIdx: it.orderIdx ?? i,
-          })),
-        });
-      }
-      return { ok: true as const };
+  //
+  // 単純な findUnique では「PUT が親を読んだ直後に DELETE が走って親と
+  // 既存テンプレを消し、PUT が createMany で孤児行を作る」という race が
+  // 残るので、Postgres の SELECT ... FOR UPDATE で親行に書き込みロックを
+  // 取ってから走らせる。DELETE 側は行削除自体が行ロックを取るので、
+  // 同じトランザクション順序で serialize される(先に DELETE が commit
+  // されたら FOR UPDATE は空集合を返して 404)。
+  const result = await prisma.$transaction(async (tx) => {
+    const locked = await tx.$queryRaw<{ id: number }[]>`
+      SELECT id FROM "ClassSchedule" WHERE id = ${classId} FOR UPDATE
+    `;
+    if (locked.length === 0) return { ok: false as const };
+    await tx.checklistTemplate.deleteMany({
+      where: { ownerType: "CLASS", ownerId: classId },
     });
-    if (!result.ok) {
-      return NextResponse.json(
-        { error: "class not found" },
-        { status: 404 },
-      );
+    if (parsed.data.items.length > 0) {
+      await tx.checklistTemplate.createMany({
+        data: parsed.data.items.map((it, i) => ({
+          ownerType: "CLASS",
+          ownerId: classId,
+          label: it.label.trim(),
+          orderIdx: it.orderIdx ?? i,
+        })),
+      });
     }
-  } catch (e) {
-    throw e;
+    return { ok: true as const };
+  });
+  if (!result.ok) {
+    return NextResponse.json(
+      { error: "class not found" },
+      { status: 404 },
+    );
   }
   return NextResponse.json({ ok: true, count: parsed.data.items.length });
 }
