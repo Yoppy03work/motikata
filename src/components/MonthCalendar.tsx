@@ -101,7 +101,7 @@ export function MonthCalendar({
             <button
               key={ymd}
               onClick={() => onSelect(ymd)}
-              className={`relative min-h-[3.25rem] px-1 py-1 text-left transition ${
+              className={`relative min-h-[3.25rem] px-1 pt-1 pb-3 text-left transition ${
                 ind?.isClassDay
                   ? "bg-sky-100 dark:bg-sky-500/15"
                   : "bg-white dark:bg-slate-950"
@@ -113,8 +113,11 @@ export function MonthCalendar({
                     : ""
               } ${inMonth ? "" : "opacity-40"}`}
             >
+              {/* 日付の数字は常に左上固定。
+                  予定インジケータは絶対位置でセル下部に配置するので、
+                  予定の有無で数字の位置が動かない。 */}
               <div
-                className={`text-xs font-medium ${
+                className={`text-xs font-medium leading-none ${
                   isSelected
                     ? "text-sky-300"
                     : isToday
@@ -128,8 +131,8 @@ export function MonthCalendar({
               >
                 {format(d, "d")}
               </div>
-              {ind && (
-                <div className="mt-1 flex gap-0.5">
+              {ind && (ind.events || ind.required || ind.optional) && (
+                <div className="absolute bottom-1 left-1 flex gap-0.5">
                   {ind.events ? <span className="h-1.5 w-1.5 rounded-full bg-sky-400" /> : null}
                   {ind.required ? (
                     <span className="h-1.5 w-1.5 rounded-full bg-slate-200" />

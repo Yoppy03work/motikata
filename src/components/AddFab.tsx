@@ -49,8 +49,16 @@ export function AddFab() {
 
   const startAdd = (type: "TASK" | "EVENT") => {
     setItemType(type);
-    setYmd(todayJstYmd());
+    // 直前にユーザが選んだ日付(ymd state)をそのまま TaskForm に渡す。
+    // 以前は todayJstYmd() で上書きしてしまうバグがあった。
     setStep("form");
+  };
+
+  const openSheet = () => {
+    // 開くたびに「今日」にリセット(初期値として親切)。
+    setYmd(todayJstYmd());
+    setOpen(true);
+    setStep("choose");
   };
 
   const close = () => {
@@ -62,10 +70,7 @@ export function AddFab() {
     <>
       <button
         type="button"
-        onClick={() => {
-          setOpen(true);
-          setStep("choose");
-        }}
+        onClick={openSheet}
         aria-label="タスク・予定を追加"
         className="fixed bottom-[calc(env(safe-area-inset-bottom)+5rem)] right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-sky-500 text-white shadow-lg shadow-sky-500/30 hover:bg-sky-600 active:scale-95 transition"
       >
@@ -90,19 +95,26 @@ export function AddFab() {
           className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center"
           onClick={close}
         >
+          {/*
+            iOS Safari は下部ツールバー出現時に 100vh が画面より大きく評価され
+            モーダル下端がはみ出るため、dvh(dynamic viewport height)を使う。
+            また左右に min(env(safe-area-inset-*), 0.5rem) 相当の 視覚マージンも入れる
+            (bottom sheet は完全な画面幅でも良いが、上端の rounded が角だけになって
+            もったいないので少し内側に)
+          */}
           <div
-            className="flex max-h-[90vh] w-full max-w-md flex-col rounded-t-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] shadow-2xl sm:rounded-2xl"
+            className="flex max-h-[90dvh] w-full max-w-md flex-col rounded-t-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] shadow-2xl sm:max-h-[90dvh] sm:rounded-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-slate-300 dark:bg-slate-700 sm:hidden" />
-            <div className="mb-3 flex items-baseline justify-between">
-              <h2 className="text-lg font-semibold">
+            <div className="mb-3 flex items-baseline justify-between gap-2">
+              <h2 className="min-w-0 truncate text-lg font-semibold">
                 {step === "choose" ? "追加" : itemType === "TASK" ? "タスクを追加" : "予定を追加"}
               </h2>
               <button
                 type="button"
                 onClick={close}
-                className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                className="shrink-0 rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-300"
               >
                 閉じる
               </button>
@@ -119,10 +131,7 @@ export function AddFab() {
                     onClick={() => startAdd("TASK")}
                     className="flex flex-col items-start gap-1 rounded-xl border border-sky-500/30 bg-sky-500/10 p-3 text-left transition hover:bg-sky-500/15 active:scale-[0.99]"
                   >
-                    <span className="text-2xl" aria-hidden>
-                      ✅
-                    </span>
-                    <span className="text-sm font-semibold text-sky-700 dark:text-sky-300">
+                    <span className="text-base font-semibold text-sky-700 dark:text-sky-300">
                       タスク
                     </span>
                     <span className="text-[11px] text-slate-600 dark:text-slate-400">
@@ -132,12 +141,9 @@ export function AddFab() {
                   <button
                     type="button"
                     onClick={() => startAdd("EVENT")}
-                    className="flex flex-col items-start gap-1 rounded-xl border border-violet-500/30 bg-violet-500/10 p-3 text-left transition hover:bg-violet-500/15 active:scale-[0.99]"
+                    className="flex flex-col items-start gap-1 rounded-xl border border-sky-500/30 bg-sky-500/10 p-3 text-left transition hover:bg-sky-500/15 active:scale-[0.99]"
                   >
-                    <span className="text-2xl" aria-hidden>
-                      📅
-                    </span>
-                    <span className="text-sm font-semibold text-violet-700 dark:text-violet-300">
+                    <span className="text-base font-semibold text-sky-700 dark:text-sky-300">
                       予定
                     </span>
                     <span className="text-[11px] text-slate-600 dark:text-slate-400">

@@ -31,6 +31,9 @@ export function TaskForm({
 }) {
   const [title, setTitle] = useState("");
   const [notes, setNotes] = useState("");
+  // 日付は親(AddFabや日詳細シート)から prop で初期値を受け取り、
+  // フォーム内で編集可能にする(以前は disabled で固定だった)
+  const [date, setDate] = useState(ymd);
   const [time, setTime] = useState(defaultTime ?? (itemType === "EVENT" ? "09:00" : "20:00"));
   const [priority, setPriority] = useState<Priority>("MID");
   const [required, setRequired] = useState(true);
@@ -43,12 +46,17 @@ export function TaskForm({
     { id: number; title: string; dueAt: string; itemType: "TASK" | "EVENT" }[]
   >([]);
 
-  // 時刻が変わるたびに ±30分の重複をチェック
+  // ymd prop が変わった場合(モーダルを開き直したケース等)は date を追従させる
   useEffect(() => {
-    if (!time) return;
+    setDate(ymd);
+  }, [ymd]);
+
+  // 日付/時刻が変わるたびに ±30分の重複をチェック
+  useEffect(() => {
+    if (!time || !date) return;
     const ctrl = new AbortController();
     const handle = setTimeout(async () => {
-      const dueAt = new Date(`${ymd}T${time}:00+09:00`);
+      const dueAt = new Date(`${date}T${time}:00+09:00`);
       const from = new Date(dueAt.getTime() - 60 * 60_000).toISOString();
       const to = new Date(dueAt.getTime() + 60 * 60_000).toISOString();
       try {
@@ -68,7 +76,7 @@ export function TaskForm({
       clearTimeout(handle);
       ctrl.abort();
     };
-  }, [ymd, time]);
+  }, [date, time]);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -77,7 +85,11 @@ export function TaskForm({
       setError("タイトルを入力してください");
       return;
     }
-    const dueAt = `${ymd}T${time}:00+09:00`;
+    if (!date) {
+      setError("日付を入力してください");
+      return;
+    }
+    const dueAt = `${date}T${time}:00+09:00`;
     const cleanChecklist = checklist
       .map((s, i) => ({ label: s.trim(), orderIdx: i }))
       .filter((c) => c.label.length > 0);
@@ -134,9 +146,9 @@ export function TaskForm({
           <label className="mb-1 block text-xs text-slate-600 dark:text-slate-400">日付</label>
           <input
             type="date"
-            value={ymd}
-            disabled
-            className="w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 px-3 py-2 text-sm text-slate-700 dark:text-slate-300"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            className="w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 px-3 py-2 text-sm outline-none focus:border-sky-500"
           />
         </div>
         <div>
@@ -151,9 +163,9 @@ export function TaskForm({
       </div>
 
       {conflicts.length > 0 && (
-        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-200">
+        <div className="rounded-lg border border-slate-500/40 bg-slate-500/10 p-3 text-xs text-slate-200">
           <p className="font-medium">⚠️ ±30分以内に {conflicts.length} 件の予定/タスクがあります</p>
-          <ul className="mt-1 space-y-0.5 text-amber-100/80">
+          <ul className="mt-1 space-y-0.5 text-slate-100/80">
             {conflicts.slice(0, 4).map((c) => (
               <li key={c.id}>
                 ・{new Date(c.dueAt).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })}{" "}
@@ -161,7 +173,7 @@ export function TaskForm({
               </li>
             ))}
           </ul>
-          <p className="mt-1.5 text-[10px] text-amber-300/70">
+          <p className="mt-1.5 text-[10px] text-slate-300/70">
             登録は可能です。優先度高い方が上に表示されます
           </p>
         </div>
