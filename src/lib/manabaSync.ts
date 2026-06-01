@@ -31,6 +31,12 @@ export type ManabaSyncResult =
       skipped: number;
       /** 取消し / 取り下げ済み(スクレイプに出なかった既存 OPEN 行) */
       canceled: number;
+      /**
+       * スクレイプ結果が不完全に見えたので取消し検知を見送ったか。
+       * true のとき canceled は常に 0。次回 sync で正常パースできれば
+       * 自動回復する。
+       */
+      cancellationSkipped: boolean;
     }
   | {
       ok: false;
@@ -264,40 +270,71 @@ export async function runManabaSync(): Promise<ManabaSyncResult> {
   // 注意: 上の update ループで legacy adoption により sourceExternalId を
   // 新キー(externalIdOf(a))に書き換えているので、ここでは「livesExternalIds
   // が新キーだけ」で確認すれば足りる。
-  const liveExternalIds = target.map((a) => externalIdOf(a));
-  const orphans = await prisma.taskInstance.findMany({
+  //
+  // 安全装置 (Codex P1 3333846942): manaba 側で HTML 構造や日付表記が変わると
+  // parseAssignmentsHtml が 0 行を返したり、parseDueDate が一括 null を返したり
+  // することがあり、その状態のまま reconciliation を走らせると「全 OPEN 課題が
+  // 取り消された」と誤判定して全部 SKIPPED に倒れる。citPortalSync と同じく
+  // 「明らかに壊れた scrape」の場合は破壊的更新を見送る。
+  const existingOpenCount = await prisma.taskInstance.count({
     where: {
       source: "ACADEMIC",
       status: "OPEN",
       sourceExternalId: { startsWith: "manaba:" },
-      NOT: { sourceExternalId: { in: liveExternalIds } },
     },
-    select: { id: true },
   });
+  // 壊れたとみなすパターン:
+  //   - assignments=0 (HTML 構造変更でテーブル行を 1 つも掴めなかった)
+  //   - withDue=0 だが assignments>0 (テーブル行はあるが dueAt が一切
+  //     パースできなかった = 日付フォーマット regression)
+  const scrapeLooksBroken =
+    assignments.length === 0 ||
+    (withDue.length === 0 && assignments.length > 0);
+  const shouldReconcileCancellation =
+    !scrapeLooksBroken || existingOpenCount === 0;
   let canceled = 0;
-  if (orphans.length > 0) {
-    const orphanIds = orphans.map((o) => o.id);
-    const upd = await prisma.taskInstance.updateMany({
-      where: { id: { in: orphanIds }, status: "OPEN" },
-      data: { status: "SKIPPED" },
-    });
-    canceled = upd.count;
-    // 紐づく未送信通知も止める。dispatch 進行中(claimedAt 新しい)は触らず、
-    // dispatch 側の TaskInstance.status=SKIPPED 再確認で SKIPPED へ倒される。
-    const staleClaim = new Date(Date.now() - 5 * 60_000);
-    await prisma.reminder.updateMany({
+  let cancellationSkipped = false;
+  if (shouldReconcileCancellation) {
+    const liveExternalIds = target.map((a) => externalIdOf(a));
+    const orphans = await prisma.taskInstance.findMany({
       where: {
-        instanceId: { in: orphanIds },
-        status: "PENDING",
-        OR: [{ claimedAt: null }, { claimedAt: { lt: staleClaim } }],
+        source: "ACADEMIC",
+        status: "OPEN",
+        sourceExternalId: { startsWith: "manaba:" },
+        NOT: { sourceExternalId: { in: liveExternalIds } },
       },
-      data: { status: "SKIPPED" },
+      select: { id: true },
     });
+    if (orphans.length > 0) {
+      const orphanIds = orphans.map((o) => o.id);
+      const upd = await prisma.taskInstance.updateMany({
+        where: { id: { in: orphanIds }, status: "OPEN" },
+        data: { status: "SKIPPED" },
+      });
+      canceled = upd.count;
+      const staleClaim = new Date(Date.now() - 5 * 60_000);
+      await prisma.reminder.updateMany({
+        where: {
+          instanceId: { in: orphanIds },
+          status: "PENDING",
+          OR: [{ claimedAt: null }, { claimedAt: { lt: staleClaim } }],
+        },
+        data: { status: "SKIPPED" },
+      });
+    }
+  } else {
+    cancellationSkipped = true;
   }
 
+  // lastError: 取消し検知を見送ったときだけ warning メッセージを残す。
+  // 通常成功時はクリアする(過去のエラーが残っていれば消す)。
+  const warnMsg = cancellationSkipped
+    ? `スクレイプが不完全(assignments=${assignments.length}, withDue=${withDue.length})` +
+      ` のため取消し検知を見送り(既存 OPEN ${existingOpenCount} 件を保護)`
+    : null;
   await prisma.manabaCredential.update({
     where: { id: cred.id },
-    data: { lastSyncedAt: new Date(), lastError: null },
+    data: { lastSyncedAt: new Date(), lastError: warnMsg },
   });
 
   return {
@@ -310,5 +347,6 @@ export async function runManabaSync(): Promise<ManabaSyncResult> {
     updated,
     skipped,
     canceled,
+    cancellationSkipped,
   };
 }
