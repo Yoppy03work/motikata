@@ -295,7 +295,14 @@ export async function runManabaSync(): Promise<ManabaSyncResult> {
   let canceled = 0;
   let cancellationSkipped = false;
   if (shouldReconcileCancellation) {
-    const liveExternalIds = target.map((a) => externalIdOf(a));
+    // 重要: liveExternalIds は target (= withDue) ではなく assignments 全件
+    // から作る。externalIdOf は URL / course / title だけを使って dueAt に
+    // 依存しないので、dueAt のパースに失敗した行も「ページ上には存在する =
+    // 取消しではない」とちゃんと判定できる。
+    // target にすると、部分的に日付フォーマットが regression した時に
+    // 「dueAt が読めなかった既存課題」を 取消し と誤判定して SKIPPED に
+    // 倒す事故になる (Codex P1 3333885417)。
+    const liveExternalIds = assignments.map((a) => externalIdOf(a));
     const orphans = await prisma.taskInstance.findMany({
       where: {
         source: "ACADEMIC",

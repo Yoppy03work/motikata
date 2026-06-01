@@ -104,6 +104,17 @@ export function PushSettings() {
         }),
       });
       if (!saveRes.ok) {
+        // ブラウザ側の subscribe() は成功したのにサーバ保存が失敗した場合、
+        // 何もしないとブラウザには購読が残るが DB には行が無い「片落ち」
+        // 状態になる。refresh() は購読の存在だけ見て「有効」と表示するので、
+        // 「通知 ON」のまま実際は届かない最悪 UX になる。
+        // 新規購読を即座に取り消して、ユーザに再操作で確実に直してもらう。
+        try {
+          await sub.unsubscribe();
+        } catch {
+          // unsubscribe 失敗は致命的ではない(次回 enable で同じ endpoint が
+          // 上書きされる)。ログだけ残して続行。
+        }
         setError(`サーバ保存失敗 (${saveRes.status})`);
         return;
       }
