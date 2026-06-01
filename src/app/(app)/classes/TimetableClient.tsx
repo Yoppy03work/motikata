@@ -4,7 +4,7 @@
 // CIT は 9:00 から 1 時間刻みの 10 限制。1コマ = 1〜複数限の連続。
 // グリッド: 月-土 × 1-10限。複数限の授業は rowspan で連続セル占有。
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type Item = {
   id: number;
@@ -16,7 +16,31 @@ type Item = {
   courseName: string;
   classroom: string | null;
   teacher: string | null;
+  effectiveFrom: string | null;
+  effectiveTo: string | null;
+  // ユーザ指定のカード色 (hex)。null は科目名ハッシュで自動配色。
+  color: string | null;
 };
+
+type Semester = "first" | "second";
+
+// JST の現在日付から前期/後期を判定。
+// 前期: 4-9月、後期: 10-3月。
+function semesterOfNow(): Semester {
+  const jst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  const month = jst.getUTCMonth() + 1; // 1-12
+  return month >= 4 && month <= 9 ? "first" : "second";
+}
+
+// effectiveFrom (UTC ISO) から、これが前期/後期のどちらか判定。
+// effectiveFrom が無い(手動入力等)なら all 扱い(全期間表示)。
+function semesterOfItem(it: Item): Semester | "unknown" {
+  if (!it.effectiveFrom) return "unknown";
+  const from = new Date(it.effectiveFrom);
+  const jstMonth =
+    new Date(from.getTime() + 9 * 60 * 60 * 1000).getUTCMonth() + 1;
+  return jstMonth >= 4 && jstMonth <= 9 ? "first" : "second";
+}
 
 const DAYS = [
   { value: 1, label: "月", full: "月曜" },
@@ -58,6 +82,8 @@ type Palette = {
   badge: string; // 限ラベル文字色
   hover: string;
 };
+// 色は3色に統一: sky(主) / slate(中性) / rose(警告)。
+// 授業ごとの差は背景の濃淡(同じ sky 系で 3 段階)で表現。
 const PALETTES: Palette[] = [
   {
     card: "bg-sky-100 ring-sky-300 dark:bg-sky-500/20 dark:ring-sky-500/40",
@@ -66,58 +92,16 @@ const PALETTES: Palette[] = [
     hover: "hover:bg-sky-200 dark:hover:bg-sky-500/30",
   },
   {
-    card: "bg-violet-100 ring-violet-300 dark:bg-violet-500/20 dark:ring-violet-500/40",
-    accent: "bg-violet-500",
-    badge: "text-violet-800 dark:text-violet-200",
-    hover: "hover:bg-violet-200 dark:hover:bg-violet-500/30",
-  },
-  {
-    card: "bg-emerald-100 ring-emerald-300 dark:bg-emerald-500/20 dark:ring-emerald-500/40",
-    accent: "bg-emerald-500",
-    badge: "text-emerald-800 dark:text-emerald-200",
-    hover: "hover:bg-emerald-200 dark:hover:bg-emerald-500/30",
-  },
-  {
-    card: "bg-amber-100 ring-amber-300 dark:bg-amber-500/20 dark:ring-amber-500/40",
-    accent: "bg-amber-500",
-    badge: "text-amber-800 dark:text-amber-200",
-    hover: "hover:bg-amber-200 dark:hover:bg-amber-500/30",
+    card: "bg-slate-200 ring-slate-400 dark:bg-slate-700/40 dark:ring-slate-600",
+    accent: "bg-slate-500",
+    badge: "text-slate-800 dark:text-slate-200",
+    hover: "hover:bg-slate-300 dark:hover:bg-slate-700/60",
   },
   {
     card: "bg-rose-100 ring-rose-300 dark:bg-rose-500/20 dark:ring-rose-500/40",
     accent: "bg-rose-500",
     badge: "text-rose-800 dark:text-rose-200",
     hover: "hover:bg-rose-200 dark:hover:bg-rose-500/30",
-  },
-  {
-    card: "bg-pink-100 ring-pink-300 dark:bg-pink-500/20 dark:ring-pink-500/40",
-    accent: "bg-pink-500",
-    badge: "text-pink-800 dark:text-pink-200",
-    hover: "hover:bg-pink-200 dark:hover:bg-pink-500/30",
-  },
-  {
-    card: "bg-indigo-100 ring-indigo-300 dark:bg-indigo-500/20 dark:ring-indigo-500/40",
-    accent: "bg-indigo-500",
-    badge: "text-indigo-800 dark:text-indigo-200",
-    hover: "hover:bg-indigo-200 dark:hover:bg-indigo-500/30",
-  },
-  {
-    card: "bg-teal-100 ring-teal-300 dark:bg-teal-500/20 dark:ring-teal-500/40",
-    accent: "bg-teal-500",
-    badge: "text-teal-800 dark:text-teal-200",
-    hover: "hover:bg-teal-200 dark:hover:bg-teal-500/30",
-  },
-  {
-    card: "bg-orange-100 ring-orange-300 dark:bg-orange-500/20 dark:ring-orange-500/40",
-    accent: "bg-orange-500",
-    badge: "text-orange-800 dark:text-orange-200",
-    hover: "hover:bg-orange-200 dark:hover:bg-orange-500/30",
-  },
-  {
-    card: "bg-cyan-100 ring-cyan-300 dark:bg-cyan-500/20 dark:ring-cyan-500/40",
-    accent: "bg-cyan-500",
-    badge: "text-cyan-800 dark:text-cyan-200",
-    hover: "hover:bg-cyan-200 dark:hover:bg-cyan-500/30",
   },
 ];
 
@@ -139,14 +123,96 @@ type FormState = {
   endPeriod: number;
   startTime: string;
   endTime: string;
+  // null = 自動配色(科目名ハッシュ)、文字列(#RRGGBB) = ユーザ指定
+  color: string | null;
 };
+
+// プリセットカラーパレット(20色)。色相を一周しつつ似た色は除外。
+// "自動と同色" 印の 3 色は自動配色 (paletteFor) と同じ hex なので、
+// 自動で割り当てられる色を意図的に選び直したい時に使える。
+const PRESET_COLORS: { hex: string; name: string }[] = [
+  { hex: "#ef4444", name: "赤" },
+  { hex: "#f97316", name: "橙" },
+  { hex: "#eab308", name: "黄" },
+  { hex: "#84cc16", name: "黄緑" },
+  { hex: "#22c55e", name: "緑" },
+  { hex: "#10b981", name: "翠" },
+  { hex: "#14b8a6", name: "青緑" },
+  { hex: "#06b6d4", name: "シアン" },
+  { hex: "#0ea5e9", name: "空(自動と同色)" },
+  { hex: "#3b82f6", name: "青" },
+  { hex: "#6366f1", name: "藍" },
+  { hex: "#a855f7", name: "紫" },
+  { hex: "#d946ef", name: "桃紫" },
+  { hex: "#ec4899", name: "桃" },
+  { hex: "#f43f5e", name: "薔薇(自動と同色)" },
+  { hex: "#92400e", name: "茶" },
+  { hex: "#166534", name: "暗緑" },
+  { hex: "#1e293b", name: "黒紺" },
+  { hex: "#6b7280", name: "灰" },
+  { hex: "#64748b", name: "青灰(自動と同色)" },
+];
+
+// hex を {r,g,b} に分解。失敗時は null。
+function parseHex(hex: string): { r: number; g: number; b: number } | null {
+  const m = hex.replace("#", "").match(/^([0-9a-fA-F]{6})$|^([0-9a-fA-F]{3})$/);
+  if (!m) return null;
+  if (m[1]) {
+    return {
+      r: parseInt(m[1].slice(0, 2), 16),
+      g: parseInt(m[1].slice(2, 4), 16),
+      b: parseInt(m[1].slice(4, 6), 16),
+    };
+  }
+  return {
+    r: parseInt(m[2][0] + m[2][0], 16),
+    g: parseInt(m[2][1] + m[2][1], 16),
+    b: parseInt(m[2][2] + m[2][2], 16),
+  };
+}
+
+function rgbToCss({ r, g, b }: { r: number; g: number; b: number }): string {
+  const h = (c: number) => Math.max(0, Math.min(255, c)).toString(16).padStart(2, "0");
+  return `#${h(r)}${h(g)}${h(b)}`;
+}
+
+// hex を白方向に ratio (0..1) ぶん寄せた色を返す。
+// ratio=0.75 で sky-500 → sky-100 相当(オリジナルのカード背景に近い)。
+function lightenHex(hex: string, ratio: number): string {
+  const c = parseHex(hex);
+  if (!c) return hex;
+  const blend = (v: number) => Math.round(v + (255 - v) * ratio);
+  return rgbToCss({ r: blend(c.r), g: blend(c.g), b: blend(c.b) });
+}
+
+// hex を黒方向に ratio (0..1) ぶん寄せた色を返す。
+// ratio=0.5 で sky-400 → sky-800 相当(オリジナルのバッジ文字色に近い)。
+function darkenHex(hex: string, ratio: number): string {
+  const c = parseHex(hex);
+  if (!c) return hex;
+  const blend = (v: number) => Math.round(v * (1 - ratio));
+  return rgbToCss({ r: blend(c.r), g: blend(c.g), b: blend(c.b) });
+}
+
+// hex から相対輝度を計算してテキスト色を決める。
+// 明るい背景には濃いテキスト、暗い背景には淡いテキスト。
+function readableTextColor(hex: string): string {
+  const c = parseHex(hex);
+  if (!c) return "#0f172a";
+  const lum = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b; // 0..255
+  return lum > 140 ? "#0f172a" : "#f8fafc";
+}
 
 export function TimetableClient() {
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<EditTarget | null>(null);
+  // 講義カード長押しで開く詳細表示(読み取り専用)
+  const [viewing, setViewing] = useState<Item | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 学期切替。デフォルトは今日の日付に応じて自動選択。
+  const [semester, setSemester] = useState<Semester>(() => semesterOfNow());
 
   // 今日の曜日(JST、月=1〜土=6 にマップ。日曜は 0 で対象外)
   const todayDow = useMemo(() => {
@@ -154,6 +220,16 @@ export function TimetableClient() {
     const d = jst.getUTCDay(); // 0=日, 1=月, ..., 6=土
     return d === 0 ? 0 : d;
   }, []);
+
+  // 学期フィルタ済みアイテム。
+  // 前期/後期 の2択。effectiveFrom が null のものは両方の学期に表示する
+  // (手動入力された授業など。学期境界が無いので暦に依存させない方針)。
+  const filteredItems = useMemo(() => {
+    return items.filter((it) => {
+      const s = semesterOfItem(it);
+      return s === "unknown" || s === semester;
+    });
+  }, [items, semester]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -172,11 +248,13 @@ export function TimetableClient() {
     void refresh();
   }, [refresh]);
 
-  // (dayOfWeek, period) → Item の引き当て + 占有判定
+  // (dayOfWeek, period) → Item の引き当て + 占有判定。
+  // 学期フィルタ後のアイテムだけ対象にする(以前は全期混在で同じセルに前期+後期が
+  // 重なって片方しか表示されない不具合があった)。
   const { startCells, occupied } = useMemo(() => {
     const startCells = new Map<string, Item>();
     const occupied = new Set<string>();
-    for (const it of items) {
+    for (const it of filteredItems) {
       const start = it.period;
       const end = Math.max(start, it.endPeriod);
       startCells.set(`${it.dayOfWeek}/${start}`, it);
@@ -185,7 +263,7 @@ export function TimetableClient() {
       }
     }
     return { startCells, occupied };
-  }, [items]);
+  }, [filteredItems]);
 
   return (
     <div>
@@ -194,6 +272,30 @@ export function TimetableClient() {
           {error}
         </p>
       )}
+
+      {/* 学期切替(前期 / 後期) */}
+      <div className="mb-2 grid grid-cols-2 gap-1 rounded-lg border border-slate-300 bg-white p-1 text-xs dark:border-slate-700 dark:bg-slate-950">
+        {(
+          [
+            { v: "first" as const, label: "前期" },
+            { v: "second" as const, label: "後期" },
+          ]
+        ).map((opt) => (
+          <button
+            key={opt.v}
+            type="button"
+            onClick={() => setSemester(opt.v)}
+            aria-pressed={semester === opt.v}
+            className={`rounded-md px-2 py-1 transition ${
+              semester === opt.v
+                ? "bg-sky-500 text-white"
+                : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
 
       {/* 凡例 */}
       <div className="mb-2 flex flex-wrap items-center gap-3 text-xs text-slate-700 dark:text-slate-300">
@@ -260,15 +362,6 @@ export function TimetableClient() {
                     if (occupied.has(key)) return null;
                     const it = startCells.get(key);
                     const span = it ? Math.max(1, it.endPeriod - it.period + 1) : 1;
-                    const palette = it ? paletteFor(it.courseName) : null;
-                    const dayLabel = DAYS.find((x) => x.value === d.value)?.full ?? "";
-                    const periodLabel =
-                      it && it.endPeriod !== it.period
-                        ? `${it.period}-${it.endPeriod}限`
-                        : `${p.value}限`;
-                    const aria = it
-                      ? `${dayLabel} ${periodLabel} ${it.courseName}${it.classroom ? ` 教室 ${it.classroom}` : ""}${it.teacher ? ` 担当 ${it.teacher}` : ""}。タップで編集`
-                      : `${dayLabel} ${p.value}限 空き。タップで追加`;
                     return (
                       <td
                         key={d.value}
@@ -276,66 +369,22 @@ export function TimetableClient() {
                         role="gridcell"
                         className="p-1 align-top"
                       >
-                        <button
-                          type="button"
-                          aria-label={aria}
-                          onClick={() =>
+                        <ClassCell
+                          item={it ?? null}
+                          dayOfWeek={d.value}
+                          period={p.value}
+                          span={span}
+                          onTap={() =>
                             setEditing({
                               dayOfWeek: d.value,
                               period: p.value,
                               existing: it ?? null,
                             })
                           }
-                          className={`relative flex h-full w-full overflow-hidden rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-sky-600 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-slate-950 motion-safe:transition motion-safe:active:scale-[0.98] ${
-                            it && palette
-                              ? `${palette.card} ${palette.hover} ring-1 ring-inset shadow-sm hover:shadow-md`
-                              : "border border-dashed border-slate-400 dark:border-slate-600 hover:border-sky-600 dark:hover:border-sky-400 hover:bg-sky-50 dark:hover:bg-sky-500/10"
-                          }`}
-                          style={{ minHeight: `${span * 3.5}rem` }}
-                        >
-                          {it && palette ? (
-                            <>
-                              {/* 左アクセントバー */}
-                              <span
-                                className={`absolute left-0 top-0 h-full w-1 ${palette.accent}`}
-                                aria-hidden
-                              />
-                              <div className="flex w-full flex-col gap-0.5 px-2 py-1.5 pl-2.5">
-                                <div
-                                  className={`flex items-baseline gap-1 text-xs font-bold tabular-nums ${palette.badge}`}
-                                >
-                                  <span>{periodLabel}</span>
-                                  <span aria-hidden className="text-slate-400 dark:text-slate-500">
-                                    ·
-                                  </span>
-                                  <span className="font-semibold text-slate-700 dark:text-slate-300">
-                                    {it.startTime}〜{it.endTime}
-                                  </span>
-                                </div>
-                                <div className="line-clamp-2 text-base font-bold leading-tight text-slate-900 dark:text-slate-50">
-                                  {it.courseName}
-                                </div>
-                                {it.classroom && (
-                                  <div className="mt-auto truncate text-sm font-medium text-slate-800 dark:text-slate-200">
-                                    <span aria-hidden>📍 </span>
-                                    {it.classroom}
-                                  </div>
-                                )}
-                                {it.teacher && (
-                                  <div className="truncate text-xs font-medium text-slate-600 dark:text-slate-300">
-                                    {it.teacher}
-                                  </div>
-                                )}
-                              </div>
-                            </>
-                          ) : (
-                            <div className="flex h-full w-full items-center justify-center">
-                              <span aria-hidden className="text-lg text-slate-400 dark:text-slate-500">
-                                +
-                              </span>
-                            </div>
-                          )}
-                        </button>
+                          onLongPress={() => {
+                            if (it) setViewing(it);
+                          }}
+                        />
                       </td>
                     );
                   })}
@@ -359,6 +408,21 @@ export function TimetableClient() {
           pending={pending}
           setPending={setPending}
           setError={setError}
+        />
+      )}
+
+      {viewing && (
+        <DetailsModal
+          item={viewing}
+          onClose={() => setViewing(null)}
+          onEdit={() => {
+            setEditing({
+              dayOfWeek: viewing.dayOfWeek,
+              period: viewing.period,
+              existing: viewing,
+            });
+            setViewing(null);
+          }}
         />
       )}
     </div>
@@ -398,6 +462,7 @@ function EditModal({
         target.existing?.endTime ??
         PERIODS[end - 1]?.end ??
         "10:00",
+      color: target.existing?.color ?? null,
     };
   }, [target]);
   const [form, setForm] = useState<FormState>(initial);
@@ -468,6 +533,7 @@ function EditModal({
         courseName: form.courseName.trim(),
         classroom: form.classroom.trim() || null,
         teacher: form.teacher.trim() || null,
+        color: form.color,
       };
       const url = target.existing
         ? `/api/classes/${target.existing.id}`
@@ -532,8 +598,11 @@ function EditModal({
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
       onClick={onClose}
     >
+      {/* 20色パレット追加でモーダルが縦に伸び、低い画面/キーボード表示時に
+          下部の持ち物・保存ボタンが画面外に出るので、最大高を制限して
+          中身をスクロールできるようにする(dvh = iOS Safari のツールバー考慮)。 */}
       <div
-        className="w-full max-w-sm rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-4 shadow-xl"
+        className="flex max-h-[90dvh] w-full max-w-sm flex-col overflow-y-auto rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-4 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-3 flex items-baseline justify-between">
@@ -607,6 +676,62 @@ function EditModal({
               disabled={pending}
               className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-sky-500"
             />
+          </Field>
+          {/* カード色: 20色のプリセット + 自動。null = 自動配色(科目名ハッシュ)。 */}
+          <Field label="カード色">
+            <div className="grid grid-cols-10 gap-1.5">
+              {/* 自動(null) */}
+              <button
+                type="button"
+                onClick={() => update({ color: null })}
+                disabled={pending}
+                aria-label="自動配色"
+                aria-pressed={form.color === null}
+                className={`relative flex aspect-square items-center justify-center rounded-md border text-[10px] font-medium transition disabled:opacity-50 ${
+                  form.color === null
+                    ? "border-sky-500 bg-sky-50 text-sky-700 ring-2 ring-sky-500 dark:bg-sky-500/15 dark:text-sky-200"
+                    : "border-slate-300 bg-white text-slate-600 hover:border-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400"
+                }`}
+                title="科目名から自動配色"
+              >
+                自動
+              </button>
+              {PRESET_COLORS.map((c) => {
+                const selected = form.color?.toLowerCase() === c.hex.toLowerCase();
+                return (
+                  <button
+                    key={c.hex}
+                    type="button"
+                    onClick={() => update({ color: c.hex })}
+                    disabled={pending}
+                    aria-label={`${c.name} (${c.hex})`}
+                    aria-pressed={selected}
+                    title={`${c.name} ${c.hex}`}
+                    className={`relative aspect-square rounded-md transition disabled:opacity-50 ${
+                      selected
+                        ? "ring-2 ring-offset-2 ring-slate-700 ring-offset-white dark:ring-slate-300 dark:ring-offset-slate-950 scale-110"
+                        : "ring-1 ring-inset ring-slate-300/60 hover:scale-105 dark:ring-slate-700/60"
+                    }`}
+                    style={{ background: c.hex }}
+                  >
+                    {selected && (
+                      <span
+                        aria-hidden
+                        className="absolute inset-0 flex items-center justify-center text-sm font-bold"
+                        style={{ color: readableTextColor(c.hex) }}
+                      >
+                        ✓
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            <span className="mt-1 block text-[11px] text-slate-500">
+              {form.color
+                ? `選択中: ${PRESET_COLORS.find((c) => c.hex.toLowerCase() === form.color?.toLowerCase())?.name ?? form.color}`
+                : "「自動」: 科目名から sky/slate/rose の3色を自動割当"}
+            </span>
           </Field>
           <p className="rounded-md bg-slate-100 dark:bg-slate-900 px-2 py-1.5 text-[11px] text-slate-600 dark:text-slate-400">
             時刻:{" "}
@@ -706,5 +831,296 @@ function Field({
       </span>
       <span className="mt-1 block">{children}</span>
     </label>
+  );
+}
+
+// 講義カード(セル本体)。タップ=編集、長押し=詳細を呼び出す。
+// item が null なら空セル(タップで追加)。
+function ClassCell({
+  item,
+  dayOfWeek,
+  period,
+  span,
+  onTap,
+  onLongPress,
+}: {
+  item: Item | null;
+  dayOfWeek: number;
+  period: number;
+  span: number;
+  onTap: () => void;
+  onLongPress: () => void;
+}) {
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressed = useRef(false);
+  const startCoord = useRef<{ x: number; y: number } | null>(null);
+
+  const cancelTimer = () => {
+    if (timer.current) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+  };
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    longPressed.current = false;
+    startCoord.current = { x: e.clientX, y: e.clientY };
+    cancelTimer();
+    if (item) {
+      // 既存セルのみ長押し有効。空セルは即タップで追加なのでタイマー不要。
+      timer.current = setTimeout(() => {
+        longPressed.current = true;
+        timer.current = null;
+        onLongPress();
+      }, 500);
+    }
+  };
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!timer.current || !startCoord.current) return;
+    const dx = Math.abs(e.clientX - startCoord.current.x);
+    const dy = Math.abs(e.clientY - startCoord.current.y);
+    if (dx > 10 || dy > 10) cancelTimer();
+  };
+  const handlePointerUp = () => {
+    cancelTimer();
+  };
+  const handleClick = () => {
+    if (longPressed.current) {
+      // 直前の長押しでモーダル開いたので click は無視
+      longPressed.current = false;
+      return;
+    }
+    onTap();
+  };
+
+  const dayLabel = DAYS.find((x) => x.value === dayOfWeek)?.full ?? "";
+  const periodLabel = item
+    ? item.endPeriod !== item.period
+      ? `${item.period}-${item.endPeriod}限`
+      : `${period}限`
+    : `${period}限`;
+  const aria = item
+    ? `${dayLabel} ${periodLabel} ${item.courseName}${item.classroom ? ` 教室 ${item.classroom}` : ""}${item.teacher ? ` 担当 ${item.teacher}` : ""}。タップで編集、長押しで詳細`
+    : `${dayLabel} ${period}限 空き。タップで追加`;
+
+  if (!item) {
+    return (
+      <button
+        type="button"
+        aria-label={aria}
+        onClick={handleClick}
+        onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        onPointerMove={handlePointerMove}
+        onContextMenu={(e) => e.preventDefault()}
+        className="relative flex h-full w-full overflow-hidden rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-sky-600 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-slate-950 motion-safe:transition motion-safe:active:scale-[0.98] border border-dashed border-slate-400 dark:border-slate-600 hover:border-sky-600 dark:hover:border-sky-400 hover:bg-sky-50 dark:hover:bg-sky-500/10"
+        style={{ minHeight: `${span * 3.5}rem` }}
+      >
+        <div className="flex h-full w-full items-center justify-center">
+          <span aria-hidden className="text-lg text-slate-400 dark:text-slate-500">
+            +
+          </span>
+        </div>
+      </button>
+    );
+  }
+
+  // ユーザ指定色 or 科目名ハッシュの自動配色。
+  // カスタム色:
+  //   - 背景 = 白方向に 75% 寄せた色(sky-100 相当の薄さ)
+  //   - 左アクセントバー = 選択色そのまま(濃い)
+  //   - 時限/時刻バッジ = 選択色を 50% 黒方向に寄せた色(sky-800 相当の濃さ)
+  //   - 科目名 = ニュートラルな読みやすい色(白/黒、背景輝度から自動)
+  //   - 教室・教員 = 同じく自動だが透明度を下げる
+  // オリジナル(palette)も同じ「左濃い・背景薄い」の構造。
+  const customColor = item.color;
+  const palette = customColor ? null : paletteFor(item.courseName);
+  const customBg = customColor ? lightenHex(customColor, 0.75) : null;
+  const customText = customBg ? readableTextColor(customBg) : undefined;
+  const customBadge = customColor ? darkenHex(customColor, 0.5) : undefined;
+
+  return (
+    <button
+      type="button"
+      aria-label={aria}
+      onClick={handleClick}
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
+      onPointerMove={handlePointerMove}
+      onContextMenu={(e) => e.preventDefault()}
+      className={`relative flex h-full w-full overflow-hidden rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-sky-600 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-slate-950 motion-safe:transition motion-safe:active:scale-[0.98] ring-1 ring-inset shadow-sm hover:shadow-md select-none ${
+        palette ? `${palette.card} ${palette.hover}` : ""
+      }`}
+      style={{
+        minHeight: `${span * 3.5}rem`,
+        ...(customBg
+          ? { background: customBg, color: customText }
+          : {}),
+      }}
+    >
+      {/* 左アクセントバー: パレット時は class、カスタム時は inline で濃い色 */}
+      <span
+        className={`absolute left-0 top-0 h-full w-1 ${palette ? palette.accent : ""}`}
+        style={customColor ? { background: customColor } : undefined}
+        aria-hidden
+      />
+      <div className="flex w-full flex-col gap-0.5 px-2 py-1.5 pl-2.5">
+        <div
+          className={`flex items-baseline gap-1 text-xs font-bold tabular-nums ${
+            palette ? palette.badge : ""
+          }`}
+          style={customBadge ? { color: customBadge } : undefined}
+        >
+          <span>{periodLabel}</span>
+          <span aria-hidden className="opacity-60">·</span>
+          <span className="font-semibold opacity-90">
+            {item.startTime}〜{item.endTime}
+          </span>
+        </div>
+        <div
+          className={`line-clamp-2 text-base font-bold leading-tight ${
+            palette ? "text-slate-900 dark:text-slate-50" : ""
+          }`}
+          style={customText ? { color: customText } : undefined}
+        >
+          {item.courseName}
+        </div>
+        {item.classroom && (
+          <div
+            className={`mt-auto truncate text-sm font-medium ${
+              palette ? "text-slate-800 dark:text-slate-200" : ""
+            }`}
+            style={customText ? { color: customText, opacity: 0.9 } : undefined}
+          >
+            {item.classroom}
+          </div>
+        )}
+        {item.teacher && (
+          <div
+            className={`truncate text-xs font-medium ${
+              palette ? "text-slate-600 dark:text-slate-300" : ""
+            }`}
+            style={customText ? { color: customText, opacity: 0.75 } : undefined}
+          >
+            {item.teacher}
+          </div>
+        )}
+      </div>
+    </button>
+  );
+}
+
+// 講義詳細モーダル(読み取り専用)。長押しから開く。
+function DetailsModal({
+  item,
+  onClose,
+  onEdit,
+}: {
+  item: Item;
+  onClose: () => void;
+  onEdit: () => void;
+}) {
+  const day = DAYS.find((d) => d.value === item.dayOfWeek);
+  const periodLabel =
+    item.endPeriod !== item.period
+      ? `${item.period}限〜${item.endPeriod}限`
+      : `${item.period}限`;
+  const semester =
+    item.effectiveFrom &&
+    new Date(
+      new Date(item.effectiveFrom).getTime() + 9 * 3600 * 1000,
+    ).getUTCMonth() +
+      1 >=
+      4 &&
+    new Date(
+      new Date(item.effectiveFrom).getTime() + 9 * 3600 * 1000,
+    ).getUTCMonth() +
+      1 <=
+      9
+      ? "前期"
+      : item.effectiveFrom
+        ? "後期"
+        : "—";
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="class-details-title"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm p-0 sm:items-center sm:p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-t-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950 p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] shadow-2xl sm:rounded-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-slate-300 dark:bg-slate-700 sm:hidden" />
+        <div className="mb-3 flex items-baseline justify-between gap-2">
+          <h2
+            id="class-details-title"
+            className="min-w-0 truncate text-lg font-semibold"
+          >
+            {item.courseName}
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="shrink-0 rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+          >
+            閉じる
+          </button>
+        </div>
+        <dl className="space-y-2 text-sm">
+          <div className="flex justify-between gap-3">
+            <dt className="text-slate-500">曜日 / 時限</dt>
+            <dd className="font-medium text-slate-900 dark:text-slate-100">
+              {day?.full ?? `Day${item.dayOfWeek}`} / {periodLabel}
+            </dd>
+          </div>
+          <div className="flex justify-between gap-3">
+            <dt className="text-slate-500">時刻</dt>
+            <dd className="font-medium tabular-nums text-slate-900 dark:text-slate-100">
+              {item.startTime} 〜 {item.endTime}
+            </dd>
+          </div>
+          <div className="flex justify-between gap-3">
+            <dt className="text-slate-500">学期</dt>
+            <dd className="font-medium text-slate-900 dark:text-slate-100">
+              {semester}
+            </dd>
+          </div>
+          <div className="flex justify-between gap-3">
+            <dt className="text-slate-500">教室</dt>
+            <dd className="font-medium text-slate-900 dark:text-slate-100">
+              {item.classroom ?? "—"}
+            </dd>
+          </div>
+          <div className="flex justify-between gap-3">
+            <dt className="text-slate-500">教員</dt>
+            <dd className="font-medium text-slate-900 dark:text-slate-100">
+              {item.teacher ?? "—"}
+            </dd>
+          </div>
+        </dl>
+        <div className="mt-4 flex gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 py-2 text-sm text-slate-700 dark:text-slate-300"
+          >
+            閉じる
+          </button>
+          <button
+            type="button"
+            onClick={onEdit}
+            className="flex-1 rounded-md bg-sky-500 py-2 text-sm font-medium text-white"
+          >
+            編集
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
