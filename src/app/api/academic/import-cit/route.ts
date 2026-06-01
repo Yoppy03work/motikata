@@ -25,6 +25,10 @@ const Body = z.object({
 });
 
 const SOURCE_TAG = "cit-gakunenreki";
+// この経路で TaskInstance に映す行は同じプレフィクスを使い、ユーザ ICS
+// import("ics:..." プレフィクス) と取り違えずに reconciliation できる
+// ようにする。
+const SURFACE_PREFIX = "cit-gakunenreki";
 
 // AcademicEvent として残すイベントのフィルタ。
 // 「行事として通知に出てきてほしいもの」だけに絞る。
@@ -154,50 +158,60 @@ export async function POST(req: Request) {
 
   // 1) AcademicEvent + ClassDay を 1 トランザクションで書き込む。
   // 途中で例外が出れば全部ロールバックされ、部分的な不整合を残さない。
+  //
+  // 戦略: ClassDay と同じく「学年度範囲を full-replace」する。
+  // 旧版は keepEvents の append-only だったので、後から PDF で行事が
+  // 削除/改名/移動された場合、古い AcademicEvent と TaskInstance が
+  // 残り続けて UI に幽霊行事が表示されていた。CIT 由来の行だけを
+  // 学年度範囲で消してから書き直すことで、その reconciliation を実現。
   let insertedEvents = 0;
   let skippedEvents = 0;
   let surfacedInstances = 0;
+  let removedObsoleteInstances = 0;
   const { start, end } = academicYearRange(academicYear);
   const cd = await prisma.$transaction(async (tx) => {
+    // (a) 学年度範囲内の CIT 由来 AcademicEvent を一掃する。
+    //     importedFrom=SOURCE_TAG で限定するので、ユーザが ICS で入れた
+    //     別経路の AcademicEvent は触らない。
+    await tx.academicEvent.deleteMany({
+      where: {
+        importedFrom: SOURCE_TAG,
+        date: { gte: start, lte: end },
+      },
+    });
+    // (b) その鏡像 TaskInstance も同じ範囲で一掃する。
+    //     sourceExternalId の prefix を SURFACE_PREFIX に限定するため、
+    //     ユーザ ICS import で作られた "ics:..." 行は巻き添えにしない。
+    //     dueAt は materialize で JST 09:00 (= UTC 00:00 of date) になって
+    //     いるので、AcademicEvent.date と同じ範囲条件で対象になる。
+    const obsoleteDel = await tx.taskInstance.deleteMany({
+      where: {
+        source: "ACADEMIC",
+        sourceExternalId: { startsWith: `${SURFACE_PREFIX}:` },
+        dueAt: { gte: start, lte: end },
+      },
+    });
+    removedObsoleteInstances = obsoleteDel.count;
+
+    // (c) 新しい keepEvents を入れ直す。createMany はトランザクション内で
+    //     1 文発行されるので、片落ちは起こらない。
     if (keepEvents.length > 0) {
-      const minDate = keepEvents.reduce(
-        (m, e) => (e.date < m ? e.date : m),
-        keepEvents[0].date,
-      );
-      const maxDate = keepEvents.reduce(
-        (m, e) => (e.date > m ? e.date : m),
-        keepEvents[0].date,
-      );
-      const existing = await tx.academicEvent.findMany({
-        where: { date: { gte: minDate, lte: maxDate } },
-        select: { date: true, title: true },
+      await tx.academicEvent.createMany({
+        data: keepEvents.map((e) => ({
+          title: e.title,
+          date: e.date,
+          kind: e.kind,
+          importedFrom: SOURCE_TAG,
+        })),
       });
-      const existingKey = new Set(
-        existing.map((e) => `${e.date.toISOString()}|${e.title}`),
-      );
-      const fresh = keepEvents.filter(
-        (e) => !existingKey.has(`${e.date.toISOString()}|${e.title}`),
-      );
-      if (fresh.length > 0) {
-        await tx.academicEvent.createMany({
-          data: fresh.map((e) => ({
-            title: e.title,
-            date: e.date,
-            kind: e.kind,
-            importedFrom: SOURCE_TAG,
-          })),
-        });
-      }
-      insertedEvents = fresh.length;
-      skippedEvents = keepEvents.length - fresh.length;
-      // 重要: materialize には keepEvents 全件を渡して冪等にする。
-      // 前回 import で TaskInstance 側が片落ちしている場合でも、ここで
-      // 自動的に補完される(unique 制約で既存は no-op)。fresh だけだと
-      // AcademicEvent 行があるのに TaskInstance が無い状態が再 import
-      // でも修復されないままになる。
+      insertedEvents = keepEvents.length;
+      skippedEvents = 0;
+      // CIT プレフィクス付きで複製する。冪等 (skipDuplicates) なので
+      // 削除 → 再 insert 順を間違っても安全。
       surfacedInstances = await materializeAcademicEventsAsInstances(
         tx,
         keepEvents,
+        { idPrefix: SURFACE_PREFIX },
       );
     }
 
@@ -222,6 +236,7 @@ export async function POST(req: Request) {
     inserted: insertedEvents,
     skipped: skippedEvents,
     surfaced: surfacedInstances,
+    removedObsolete: removedObsoleteInstances,
     classDayInserted: cd.inserted,
     classDayDeleted: cd.deleted,
   });

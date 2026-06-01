@@ -85,16 +85,32 @@ async function callJob(path: string, label: string): Promise<void> {
   }
 }
 
-// expand-today: 毎朝 05:00 JST。今日の授業 (ClassSchedule × ClassDay) を
-// TaskInstance に EVENT として展開し、持ち物 ChecklistTemplate を
-// チェックリストとしてコピーする
+// expand-today: 毎朝 05:00 JST + 夕方 17:00 JST + 23:00 JST。
+// 今日の授業 (ClassSchedule × ClassDay) を TaskInstance に EVENT として
+// 展開し、持ち物 ChecklistTemplate をチェックリストとしてコピーする。
+// /api/jobs/expand-today は既定で「今日 + 明日」の 2 日分を展開するので、
+// 17:00 / 23:00 の tick で「翌日の準備」がカレンダーに事前に並ぶ。
+//
+// 複数 tick を置く理由:
+//   - 05:00 で web 側が固まる / DB が瞬断する / worker が再起動中 だと
+//     その日の授業が一度も TaskInstance 化されないまま終わる事故が起きる。
+//   - expandToday は冪等(同じ class:<id>:<ymd> は (source, sourceExternalId)
+//     ユニーク制約で skipped 集計)なので何度叩いても安全。
+//   - 17:00 ティックは「翌日の準備」用途的にも合理的なタイミング。
+//   - 23:00 ティックは日付境界直前のセーフティネット。
+const expandTodaySchedule = "0 5,17,23 * * *";
 cron.schedule(
-  "0 5 * * *",
+  expandTodaySchedule,
   () => {
     void callJob("/api/jobs/expand-today", "expand-today");
   },
   { timezone: "Asia/Tokyo" },
 );
+// 起動時にも 1 回呼ぶ。worker が朝の cron tick を寝過ごしたまま再起動
+// された場合の catch-up。expandToday は冪等なので空打ちでも害は無い。
+// callJob 自体が JOBS_TOKEN 未設定なら no-op するので、ローカル開発で
+// JOBS_TOKEN を設定していない環境でも安全。
+void callJob("/api/jobs/expand-today", "expand-today (startup catch-up)");
 
 // dispatch-reminders: 毎分。pending な Reminder を Slack/Push に流す。
 // 直前の実行が 60 秒以上かかると次の cron tick が重なり、同じ PENDING 行を

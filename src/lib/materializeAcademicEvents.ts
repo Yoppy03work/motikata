@@ -13,9 +13,13 @@
 //   - kind=HOLIDAY は除外(休講は授業 EVENT 側の非表示として既に効くだけで、
 //     ユーザの「予定」セクションに並べたくない)
 //   - itemType=EVENT, required=false, priority=LOW, status=OPEN
-//   - source=ACADEMIC, sourceExternalId=`ics:<isoDate>:<title>` で
+//   - source=ACADEMIC, sourceExternalId=`<idPrefix>:<isoDate>:<title>` で
 //     (source, sourceExternalId) ユニーク制約に乗せる → 再 import で
-//     dedup される
+//     dedup される。idPrefix は呼び出し元から渡す:
+//       - 利用者 ICS import → "ics"
+//       - 千葉工大 PDF import → "cit-gakunenreki"
+//     これにより、各インポート経路は自分のプレフィクスだけを reconciliation
+//     対象にできて、別経路の row を巻き添えで消さずに済む。
 //   - dueAt は AcademicEvent.date を JST 09:00 にずらして「朝の予定」として
 //     並べる。終日扱いだが、Today 上で時刻表示があるので 9:00 が読みやすい。
 //
@@ -44,12 +48,14 @@ type TxClient = Prisma.TransactionClient | PrismaClient;
 export async function materializeAcademicEventsAsInstances(
   tx: TxClient,
   events: MaterializableAcademicEvent[],
+  options: { idPrefix?: string } = {},
 ): Promise<number> {
+  const idPrefix = options.idPrefix ?? "ics";
   const surfaceable = events.filter((e) => e.kind !== "HOLIDAY");
   if (surfaceable.length === 0) return 0;
 
   const data = surfaceable.map((e) => {
-    const externalId = `ics:${e.date.toISOString()}:${e.title}`;
+    const externalId = `${idPrefix}:${e.date.toISOString()}:${e.title}`;
     // JST 09:00 にシフト: e.date は JST 0:00 (UTC 前日 15:00) を表す Date。
     // そのまま +9h すると JST 09:00 = UTC 0:00。
     const dueAt = new Date(e.date.getTime() + 9 * 60 * 60 * 1000);

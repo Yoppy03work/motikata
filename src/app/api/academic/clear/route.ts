@@ -27,16 +27,22 @@ export async function POST(req: Request) {
   const to = new Date(Date.UTC(ay + 1, 2, 31, 15, 0, 0));
 
   // import 時に materializeAcademicEventsAsInstances で複製した
-  // TaskInstance(source=ACADEMIC, sourceExternalId LIKE 'ics:...') も
+  // TaskInstance(source=ACADEMIC, sourceExternalId は idPrefix ベース)も
   // 同じ範囲で消す。複製は dueAt = AcademicEvent.date + 9h(JST 09:00)で
   // 入れているので、その範囲フィルタで一致する。
+  // 現状の idPrefix:
+  //   - "ics"             : ユーザ ICS import (/api/academic/import)
+  //   - "cit-gakunenreki" : 千葉工大 PDF import (/api/academic/import-cit)
   const [eventDel, classDayDel, instanceDel] = await prisma.$transaction([
     prisma.academicEvent.deleteMany({ where: { date: { gte: from, lt: to } } }),
     prisma.classDay.deleteMany({ where: { date: { gte: from, lt: to } } }),
     prisma.taskInstance.deleteMany({
       where: {
         source: "ACADEMIC",
-        sourceExternalId: { startsWith: "ics:" },
+        OR: [
+          { sourceExternalId: { startsWith: "ics:" } },
+          { sourceExternalId: { startsWith: "cit-gakunenreki:" } },
+        ],
         dueAt: { gte: from, lt: to },
       },
     }),
