@@ -68,28 +68,34 @@ export async function POST(req: Request) {
     (e) => !existingKey.has(`${e.date.toISOString()}|${e.title}`),
   );
 
-  if (fresh.length === 0) {
-    return NextResponse.json({
-      ok: true,
-      inserted: 0,
-      skipped: events.length,
-    });
-  }
+  // ここで早期 return しない: AcademicEvent は前回 import で入ったが、
+  // materialize の途中で落ちて TaskInstance が片落ちしているケースを
+  // 自己修復するため、fresh が空でも materialize は必ず実行する。
+  // 旧版はここで return していたので、一度失敗した import は再 import
+  // しても TaskInstance が永遠に作られないままだった。
 
   const source = (parsed.data.source ?? "ics").slice(0, 120);
-  await prisma.academicEvent.createMany({
-    data: fresh.map((e) => ({
-      title: e.title,
-      date: e.date,
-      kind: e.kind,
-      importedFrom: source,
-    })),
-  });
 
-  // AcademicEvent だけだとカレンダー/Today に出ない(両画面は TaskInstance
-  // しか読まない)。HOLIDAY 以外を TaskInstance(EVENT) に複製して可視化する。
-  // 再 import 時の dedup は (source, sourceExternalId) ユニーク制約で済む。
-  const surfaced = await materializeAcademicEventsAsInstances(prisma, fresh);
+  // AcademicEvent insert と TaskInstance 複製を 1 トランザクションに包む。
+  // どちらかが失敗したら両方ロールバックされ、片落ちを作らない。
+  const surfaced = await prisma.$transaction(async (tx) => {
+    if (fresh.length > 0) {
+      await tx.academicEvent.createMany({
+        data: fresh.map((e) => ({
+          title: e.title,
+          date: e.date,
+          kind: e.kind,
+          importedFrom: source,
+        })),
+      });
+    }
+    // 重要: materialize には fresh ではなく events 全件を渡す。
+    // (source, sourceExternalId) ユニーク制約で dedup されるので、既存に
+    // 対しては no-op、欠けている行に対しては作成、という冪等動作になる。
+    // 前回 import 後にもし TaskInstance が片落ちしていたなら、ここで
+    // 自動的に追加される。
+    return materializeAcademicEventsAsInstances(tx, events);
+  });
 
   return NextResponse.json({
     ok: true,

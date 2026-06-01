@@ -36,15 +36,33 @@ export type ManabaSyncResult =
       stage: "no-credential" | "decrypt" | "scrape";
     };
 
+// 課題 1 つを安定的に識別するキー。
+//
+// 設計上の注意:
+//   旧版は dueAt を含めていたため、教員が締切を延長/短縮するたびに同じ
+//   課題なのに別の externalId が生まれ、updateMany が外して INSERT が走り
+//   重複行を作っていた(古い締切のまま OPEN な行が残り、Reminder も二重)。
+//
+//   URL は manaba 上の課題詳細ページのリンクで、締切とは独立に安定する。
+//   URL が取れる場合はそれを採用し、取れない場合のみ (course, title) で
+//   フォールバックする(dueAt は絶対に含めない)。
 function externalIdOf(a: ManabaAssignment): string {
-  const due = a.dueAt ? a.dueAt.toISOString() : "no-due";
-  const natural = `manaba:${a.course}:${a.title}:${due}`;
-  // 200 文字以内ならそのまま使う(後方互換: 既存の externalId と一致するため)。
-  // それを超える場合だけ SHA-256 で安定的に短縮する。
-  // truncate(slice 200) は別アサインメントが先頭一致で衝突するので NG。
+  if (a.url) {
+    const key = `manaba:url:${a.url}`;
+    if (key.length <= 200) return key;
+    const hash = createHash("sha256").update(a.url).digest("hex");
+    return `manaba:url:hash:${hash}`;
+  }
+  const natural = `manaba:${a.course}:${a.title}`;
   if (natural.length <= 200) return natural;
   const hash = createHash("sha256").update(natural).digest("hex");
   return `manaba:hash:${hash}`;
+}
+
+// 旧キー (manaba:<course>:<title>:<dueAt>) で既存行を探す。
+// 移行期間用の adoption ヘルパ。
+function legacyKeyPrefix(a: ManabaAssignment): string {
+  return `manaba:${a.course}:${a.title}:`;
 }
 
 export async function runManabaSync(): Promise<ManabaSyncResult> {
@@ -121,6 +139,44 @@ export async function runManabaSync(): Promise<ManabaSyncResult> {
       updated++;
       continue;
     }
+    // Adoption: 旧版は externalId に dueAt を含めていたので、現行 URL ベース
+    // キーでは新規扱いになるが、同じ (course, title) を旧スキームで持つ
+    // OPEN 行がまだ DB に残っていれば、それを再 key して使い回す。
+    // 同じ assignment が「締切延長で重複」する根本原因の修復。
+    const legacyOpen = await prisma.taskInstance.findFirst({
+      where: {
+        source: "ACADEMIC",
+        sourceExternalId: { startsWith: legacyKeyPrefix(a) },
+        status: "OPEN",
+      },
+      select: { id: true },
+    });
+    if (legacyOpen) {
+      try {
+        await prisma.taskInstance.update({
+          where: { id: legacyOpen.id },
+          data: {
+            title,
+            dueAt: a.dueAt!,
+            notes,
+            sourceExternalId: externalId,
+          },
+        });
+        updated++;
+      } catch (e) {
+        // 同じ URL key の新規行が並行 run で既に作られていれば P2002。
+        // その場合は今回の adoption は捨てて skip 扱い(新行が正)。
+        if (
+          e instanceof Prisma.PrismaClientKnownRequestError &&
+          e.code === "P2002"
+        ) {
+          skipped++;
+        } else {
+          throw e;
+        }
+      }
+      continue;
+    }
     const existing = await prisma.taskInstance.findUnique({
       where: {
         unique_source_external: {
@@ -132,6 +188,20 @@ export async function runManabaSync(): Promise<ManabaSyncResult> {
     });
     if (existing) {
       // status は DONE / SKIPPED(updateMany が拾わなかった)
+      skipped++;
+      continue;
+    }
+    // 旧スキームの DONE / SKIPPED 行も保護する。完了済み課題を再 INSERT
+    // して未完了状態に巻き戻さない。
+    const legacyDone = await prisma.taskInstance.findFirst({
+      where: {
+        source: "ACADEMIC",
+        sourceExternalId: { startsWith: legacyKeyPrefix(a) },
+        status: { not: "OPEN" },
+      },
+      select: { id: true },
+    });
+    if (legacyDone) {
       skipped++;
       continue;
     }

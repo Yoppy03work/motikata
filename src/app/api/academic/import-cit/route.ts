@@ -187,16 +187,18 @@ export async function POST(req: Request) {
             importedFrom: SOURCE_TAG,
           })),
         });
-        // カレンダー/Today から見えるよう、HOLIDAY 以外を TaskInstance(EVENT)
-        // に複製する。トランザクション内で完了させて AcademicEvent と
-        // TaskInstance の片落ちを防ぐ。
-        surfacedInstances = await materializeAcademicEventsAsInstances(
-          tx,
-          fresh,
-        );
       }
       insertedEvents = fresh.length;
       skippedEvents = keepEvents.length - fresh.length;
+      // 重要: materialize には keepEvents 全件を渡して冪等にする。
+      // 前回 import で TaskInstance 側が片落ちしている場合でも、ここで
+      // 自動的に補完される(unique 制約で既存は no-op)。fresh だけだと
+      // AcademicEvent 行があるのに TaskInstance が無い状態が再 import
+      // でも修復されないままになる。
+      surfacedInstances = await materializeAcademicEventsAsInstances(
+        tx,
+        keepEvents,
+      );
     }
 
     // ClassDay は同じトランザクション内で置き換え

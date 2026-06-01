@@ -230,15 +230,30 @@ function parseDueDate(text: string): Date | null {
   if (m2) {
     const now = new Date();
     const [, mon, d, hh, mm] = m2.map(Number);
-    // 年なしの日付: まず今年で解釈、過去になるなら翌年と推定。
+    // 年なしの日付: 基本は今年で解釈する。
     // 「今年」は JST 基準で取得する(年明け 0:00〜9:00 JST だと UTC はまだ前年で、
     // getUTCFullYear() を使うと 1 年早い年が入ってしまう)。
     const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+    const jstMonthNow = jstNow.getUTCMonth() + 1; // 1..12
     let y = jstNow.getUTCFullYear();
     let candidate = new Date(Date.UTC(y, mon - 1, d, hh - 9, mm));
+    // 旧版は「candidate が過去なら必ず翌年へロールオーバー」していたが、
+    // manaba は「受付終了済み」の課題も一覧に残るので、たとえば 5/2 に
+    // スクレイプして「5月1日 23:59」が返ってきた行を翌年 5/1 に推定して
+    // しまうとファントム課題が出来上がる。
+    //
+    // ロールオーバーが本当に必要なのは「年末に翌年早期の締切が年表記なしで
+    // 来ているケース」だけ(例: 12 月に "1月15日 23:59" を読む)。
+    // スクレイプ時刻が 11〜12 月で、抽出された月が 1〜3 月のときに限定する。
+    // それ以外で candidate が過去なら、その課題は既に閉じている扱いとして
+    // 過去の日時のまま返す(呼び出し側の runManabaSync が dueAt>now で
+    // ふるい落とすので、ファントム課題は作られない)。
     if (candidate.getTime() < now.getTime()) {
-      y += 1;
-      candidate = new Date(Date.UTC(y, mon - 1, d, hh - 9, mm));
+      const isNewYearBoundary = jstMonthNow >= 11 && mon <= 3;
+      if (isNewYearBoundary) {
+        y += 1;
+        candidate = new Date(Date.UTC(y, mon - 1, d, hh - 9, mm));
+      }
     }
     return candidate;
   }
