@@ -125,9 +125,9 @@ export function DayDetailSheet({
                 </p>
               ) : (
                 <div className="space-y-4">
-                  {events.length > 0 && <Group label="📅 予定" items={events} />}
-                  {required.length > 0 && <Group label="✅ 必須タスク" items={required} />}
-                  {optional.length > 0 && <Group label="◎ 任意タスク" items={optional} muted />}
+                  {events.length > 0 && <Group label="予定" items={events} />}
+                  {required.length > 0 && <Group label="必須タスク" items={required} />}
+                  {optional.length > 0 && <Group label="任意タスク" items={optional} muted />}
                   {events.length === 0 &&
                     required.length === 0 &&
                     optional.length === 0 &&

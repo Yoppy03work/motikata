@@ -178,7 +178,7 @@ export default function SearchPage() {
                       </span>
                       {n.promotedTaskId && (
                         <span className="rounded bg-sky-500/15 text-sky-700 dark:text-sky-300 px-1.5 py-0.5">
-                          ✓ タスク化済
+                          タスク化済
                         </span>
                       )}
                       {n.archivedAt && (

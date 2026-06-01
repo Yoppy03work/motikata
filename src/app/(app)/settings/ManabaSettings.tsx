@@ -229,7 +229,7 @@ export function ManabaSettings() {
       )}
 
       {error && <p className="text-xs text-rose-500">{error}</p>}
-      {message && <p className="text-xs text-emerald-500">{message}</p>}
+      {message && <p className="text-xs text-sky-500">{message}</p>}
     </div>
   );
 }

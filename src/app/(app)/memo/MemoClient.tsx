@@ -244,7 +244,7 @@ function NoteRow({
         archived
           ? "border-slate-200 dark:border-slate-800 bg-slate-100/40 dark:bg-slate-900/40 opacity-60"
           : note.kind === "DIARY"
-            ? "border-violet-900/40 bg-violet-950/20"
+            ? "border-sky-900/40 bg-sky-950/20"
             : "border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900"
       }`}
     >
@@ -261,7 +261,7 @@ function NoteRow({
           )}
           {promoted && (
             <span className="ml-2 rounded bg-sky-500/15 text-sky-700 dark:text-sky-300 px-1.5 py-0.5">
-              ✓ タスク化済
+              タスク化済
             </span>
           )}
         </span>

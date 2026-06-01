@@ -166,13 +166,13 @@ export function PushSettings() {
           disabled={pending}
           className="w-full rounded-md bg-sky-500 py-2 text-sm font-medium text-white disabled:opacity-50 hover:bg-sky-600"
         >
-          {pending ? "設定中..." : "🔔 通知を有効にする"}
+          {pending ? "設定中..." : "通知を有効にする"}
         </button>
       )}
       {state === "on" && (
         <div className="flex items-center gap-2">
-          <span className="flex-1 rounded-md bg-emerald-500/10 border border-emerald-500/30 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300">
-            ✓ 通知は有効です
+          <span className="flex-1 rounded-md bg-sky-500/10 border border-sky-500/30 px-3 py-2 text-xs text-sky-700 dark:text-sky-300">
+            通知は有効です
           </span>
           <button
             type="button"

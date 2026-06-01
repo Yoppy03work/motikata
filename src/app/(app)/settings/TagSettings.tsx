@@ -11,15 +11,11 @@ type Tag = {
   color: string | null;
 };
 
+// 色は 3 色に統一(sky / slate / rose)
 const PRESET_COLORS = [
   "#0ea5e9", // sky
-  "#8b5cf6", // violet
-  "#10b981", // emerald
-  "#f59e0b", // amber
-  "#ef4444", // red
-  "#ec4899", // pink
-  "#6366f1", // indigo
-  "#14b8a6", // teal
+  "#64748b", // slate
+  "#f43f5e", // rose
 ];
 
 export function TagSettings() {
