@@ -46,6 +46,9 @@ services:
       - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY}
       - VAPID_SUBJECT=${VAPID_SUBJECT}
       - TZ=Asia/Tokyo
+      # manaba 取得先。CIT 以外の大学で本アプリを動かす場合に上書きする。
+      # 未設定なら src/lib/manabaScrape.ts の DEFAULT_BASE が使われる。
+      - MANABA_BASE_URL=${MANABA_BASE_URL:-}
       # CITポータルスクレイパーのステップ別デバッグログ。問題切り分け時のみ有効化。
       - CIT_PORTAL_DEBUG=${CIT_PORTAL_DEBUG:-0}
     ports:

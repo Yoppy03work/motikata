@@ -357,7 +357,10 @@ export async function fetchManabaAssignments(
   username: string,
   password: string,
 ): Promise<ManabaAssignment[]> {
-  const base = (process.env.MANABA_BASE_URL ?? DEFAULT_BASE).replace(/\/$/, "");
+  // 空文字も「未指定」として扱う(docker compose で MANABA_BASE_URL=${...:-} と
+  // 空展開した場合に DEFAULT_BASE にフォールバックさせるため)。
+  const raw = process.env.MANABA_BASE_URL;
+  const base = (raw && raw.trim() !== "" ? raw : DEFAULT_BASE).replace(/\/$/, "");
   if (!username || !password) throw new ManabaError("認証情報が空です", "config");
   const jar: HostCookieJar = new Map();
 
