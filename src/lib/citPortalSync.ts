@@ -115,6 +115,24 @@ async function doRunCitPortalSync(): Promise<CitPortalSyncResult> {
     return { ok: false, error: msg, stage: "scrape" };
   }
 
+  // 防御策: スクレイプが「テーブルは見えたが行が抽出できなかった」場合、
+  // parseTimetableHtml は throw せず空配列を返す。そのまま下の reconciliation
+  // に流すと importedFrom='cit-portal' な行が全部削除対象になり、
+  // ユーザーが手入れした持ち物テンプレートも一緒に消える事故になる。
+  // ポータル側で本当に履修ゼロのケース(学期間など)は稀で、その場合は
+  // ユーザーに UI で明示的にクリアしてもらう運用にする。
+  if (classes.length === 0) {
+    const msg =
+      "ポータルから時間割を取得しましたが行が抽出できませんでした。" +
+      "ポータルの HTML 構造が変更された可能性があります。" +
+      "既存の時間割と持ち物は保護されます。";
+    await prisma.citPortalCredential.update({
+      where: { id: cred.id },
+      data: { lastError: msg.slice(0, 500) },
+    });
+    return { ok: false, error: msg, stage: "scrape" };
+  }
+
   // ClassSchedule を「全置換」するが、ユーザーが手で入れた「持ち物
   // (ChecklistTemplate)」「色 (color)」「タグ」は保持したい。
   //
