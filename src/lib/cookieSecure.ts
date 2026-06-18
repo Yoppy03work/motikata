@@ -18,3 +18,25 @@ export function resolveCookieSecure(): boolean {
   if (v === "false") return false;
   return process.env.NODE_ENV === "production";
 }
+
+// 本番(NODE_ENV=production)で SESSION_COOKIE_SECURE="false" を
+// 明示指定していると、Cookie に Secure が付かず HTTPS 環境でも
+// HTTP に降格された接続で盗聴できる状態になる。
+// HTTP の docker 本番ビルドをローカル運用するためのフラグであり、
+// 公開環境にコピペ持ち込まれる事故が一番起きやすい。
+// 起動時(モジュール初期化時)に 1 度だけ warn を出して気づきやすくする。
+//
+// process は import 順に評価されるので、session.ts / login/route.ts いずれが
+// 先にこのモジュールを import しても通る。warn は console.warn なので
+// Next.js のサーバーログ(stdout/stderr)にそのまま出る。
+//
+// SESSION_COOKIE_SECURE=true を本番で明示している場合は安全側なので無警告。
+// 未指定で NODE_ENV=production なら本関数は true を返すので、これも無警告。
+if (
+  process.env.NODE_ENV === "production" &&
+  process.env.SESSION_COOKIE_SECURE === "false"
+) {
+  console.warn(
+    "[security] SESSION_COOKIE_SECURE=false in production: session/anon cookies will be sent without the Secure flag. This is only safe behind HTTPS-stripping local proxies. Public deployments MUST set true or unset.",
+  );
+}
