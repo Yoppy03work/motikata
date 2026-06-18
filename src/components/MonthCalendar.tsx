@@ -134,8 +134,8 @@ export function MonthCalendar({
             <button
               key={ymd}
               onClick={() => onSelect(ymd)}
-              className={`relative px-1 pt-1 pb-1 text-left transition ${
-                useBars ? "min-h-[5rem]" : "min-h-[3.25rem] pb-3"
+              className={`relative px-1 pt-1 text-left transition ${
+                useBars ? "pb-1 min-h-[5rem]" : "pb-3 min-h-[3.25rem]"
               } ${
                 ind?.isClassDay
                   ? "bg-sky-100 dark:bg-sky-500/15"
