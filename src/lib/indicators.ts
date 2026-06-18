@@ -47,6 +47,19 @@ export async function getMonthlyIndicators(
 // indicators との違い: 件数ではなく実体(id/title/kind)を渡したいので別関数。
 // 範囲は wide range(±12 ヶ月)で呼ばれる想定だが、status=OPEN フィルタが効くので
 // 多くてもユーザー1人で数百件オーダー。
+//
+// セルに並べきれずクリップされる際の優先順位:
+// 1. event(時間拘束のある予定) を最優先
+// 2. required(必須タスク)
+// 3. optional(任意タスク)
+// 同じ kind 内は dueAt 昇順(prisma orderBy + V8 stable sort で維持)。
+// 朝のタスクが先に並んで午後の授業が「+1 件」に押し出される事故を防ぐ。
+const KIND_PRIORITY: Record<MonthEvent["kind"], number> = {
+  event: 0,
+  required: 1,
+  optional: 2,
+};
+
 export async function getMonthlyEvents(
   fromYmd: string,
   toYmd: string,
@@ -73,6 +86,9 @@ export async function getMonthlyEvents(
     const kind: MonthEvent["kind"] =
       r.itemType === "EVENT" ? "event" : r.required ? "required" : "optional";
     (map[ymd] ||= []).push({ id: r.id, title: r.title, kind });
+  }
+  for (const ymd of Object.keys(map)) {
+    map[ymd].sort((a, b) => KIND_PRIORITY[a.kind] - KIND_PRIORITY[b.kind]);
   }
   return map;
 }
