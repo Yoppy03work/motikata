@@ -54,10 +54,51 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
-  const { classroom, teacher, color, ...rest } = parsed.data;
+
+  // 同じ dayOfWeek 上で既存 ClassSchedule の period レンジと交差していないか。
+  // TimetableClient のグリッドはセル単位 occupied 判定で後勝ち1件しか
+  // 描画しないため、無検証で create を許すと DB は重複したまま UI から
+  // どちらかが消える状態になる(Codex P2 3432475528 と同問題、POST 経路)。
+  const { dayOfWeek, period, endPeriod, classroom, teacher, color, ...rest } =
+    parsed.data;
+  const overlap = await prisma.classSchedule.findFirst({
+    where: {
+      dayOfWeek,
+      period: { lte: endPeriod },
+      endPeriod: { gte: period },
+    },
+    select: {
+      id: true,
+      courseName: true,
+      period: true,
+      endPeriod: true,
+    },
+  });
+  if (overlap) {
+    const slot =
+      overlap.period === overlap.endPeriod
+        ? `${overlap.period}限`
+        : `${overlap.period}-${overlap.endPeriod}限`;
+    return NextResponse.json(
+      {
+        error: {
+          fieldErrors: {
+            period: [
+              `${slot}は「${overlap.courseName}」と重なっています。別の枠を選ぶか、先にそちらを変更してください。`,
+            ],
+          },
+        },
+      },
+      { status: 409 },
+    );
+  }
+
   const item = await prisma.classSchedule.create({
     data: {
       ...rest,
+      dayOfWeek,
+      period,
+      endPeriod,
       classroom: classroom ?? null,
       teacher: teacher ?? null,
       color: color ?? null,

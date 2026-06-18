@@ -65,6 +65,7 @@ export async function PATCH(
   }
   const nextPeriod = parsed.data.period ?? existing.period;
   const nextEndPeriod = parsed.data.endPeriod ?? existing.endPeriod;
+  const nextDayOfWeek = parsed.data.dayOfWeek ?? existing.dayOfWeek;
   if (nextEndPeriod < nextPeriod) {
     return NextResponse.json(
       {
@@ -73,6 +74,44 @@ export async function PATCH(
         },
       },
       { status: 400 },
+    );
+  }
+
+  // 同じ dayOfWeek 上で他の ClassSchedule の period レンジと交差していないか。
+  // TimetableClient のグリッドは同セル(同 dayOfWeek+period)に複数授業が
+  // 重なるとセル単位 occupied 判定で後勝ち1件のみ描画し、編集者が気付か
+  // ないまま DB だけ重複した状態になる(Codex P2 3432475528)。
+  // 区間重なり判定: A.period <= B.endPeriod && A.endPeriod >= B.period。
+  const overlap = await prisma.classSchedule.findFirst({
+    where: {
+      id: { not: id },
+      dayOfWeek: nextDayOfWeek,
+      period: { lte: nextEndPeriod },
+      endPeriod: { gte: nextPeriod },
+    },
+    select: {
+      id: true,
+      courseName: true,
+      period: true,
+      endPeriod: true,
+    },
+  });
+  if (overlap) {
+    const slot =
+      overlap.period === overlap.endPeriod
+        ? `${overlap.period}限`
+        : `${overlap.period}-${overlap.endPeriod}限`;
+    return NextResponse.json(
+      {
+        error: {
+          fieldErrors: {
+            period: [
+              `${slot}は「${overlap.courseName}」と重なっています。別の枠を選ぶか、先にそちらを変更してください。`,
+            ],
+          },
+        },
+      },
+      { status: 409 },
     );
   }
 
