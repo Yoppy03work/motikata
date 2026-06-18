@@ -21,21 +21,42 @@ export type DayIndicators = {
   isClassDay?: boolean;
 };
 
+// Google カレンダー風のカラーバー表示で使う、日ごとのイベント1件分の情報。
+// indicators (件数のみ) とは別に events?: Record<ymd, MonthEvent[]> を渡したとき、
+// MonthCalendar はドット集約ではなく title 付きバーを描画する。
+export type MonthEvent = {
+  id: number;
+  title: string;
+  kind: "event" | "required" | "optional";
+};
+
+const MAX_BARS_PER_CELL = 3;
+
+function barClass(kind: MonthEvent["kind"]): string {
+  if (kind === "event") return "bg-sky-500/90 text-white";
+  if (kind === "required") return "bg-rose-500/90 text-white";
+  return "bg-slate-400/80 text-white dark:bg-slate-500/80";
+}
+
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 
 export function MonthCalendar({
   selectedYmd,
   todayYmd,
   indicators,
+  events,
   onSelect,
   className = "",
 }: {
   selectedYmd: string;
   todayYmd: string;
   indicators?: Record<string, DayIndicators>;
+  // 渡されたとき、ドット集約をやめてバー表示(Google カレンダー風)に切り替える。
+  events?: Record<string, MonthEvent[]>;
   onSelect: (ymd: string) => void;
   className?: string;
 }) {
+  const useBars = !!events;
   const initialMonth = useMemo(() => {
     // selectedYmd は JST 文脈の "YYYY-MM-DD"。Date 経由で +09:00 を介すと
     // 非 JST クライアントで月がずれるため、文字列から直接 y/m を抽出する。
@@ -96,12 +117,17 @@ export function MonthCalendar({
           const isToday = ymd === todayYmd;
           const isSelected = ymd === selectedYmd;
           const ind = indicators?.[ymd];
+          const cellEvents = events?.[ymd] ?? [];
+          const visibleBars = cellEvents.slice(0, MAX_BARS_PER_CELL);
+          const overflow = Math.max(0, cellEvents.length - MAX_BARS_PER_CELL);
           const dow = d.getDay();
           return (
             <button
               key={ymd}
               onClick={() => onSelect(ymd)}
-              className={`relative min-h-[3.25rem] px-1 pt-1 pb-3 text-left transition ${
+              className={`relative px-1 pt-1 pb-1 text-left transition ${
+                useBars ? "min-h-[5rem]" : "min-h-[3.25rem] pb-3"
+              } ${
                 ind?.isClassDay
                   ? "bg-sky-100 dark:bg-sky-500/15"
                   : "bg-white dark:bg-slate-950"
@@ -113,9 +139,6 @@ export function MonthCalendar({
                     : ""
               } ${inMonth ? "" : "opacity-40"}`}
             >
-              {/* 日付の数字は常に左上固定。
-                  予定インジケータは絶対位置でセル下部に配置するので、
-                  予定の有無で数字の位置が動かない。 */}
               <div
                 className={`text-xs font-medium leading-none ${
                   isSelected
@@ -131,7 +154,29 @@ export function MonthCalendar({
               >
                 {format(d, "d")}
               </div>
-              {ind && (ind.events || ind.required || ind.optional) && (
+
+              {useBars ? (
+                visibleBars.length > 0 ? (
+                  <div className="mt-1 flex flex-col gap-0.5">
+                    {visibleBars.map((ev) => (
+                      <div
+                        key={ev.id}
+                        className={`truncate rounded-sm px-1 py-px text-[10px] leading-tight ${barClass(ev.kind)}`}
+                        title={ev.title}
+                      >
+                        {ev.title}
+                      </div>
+                    ))}
+                    {overflow > 0 ? (
+                      <div className="px-1 text-[10px] leading-tight text-slate-600 dark:text-slate-400">
+                        +{overflow} 件
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null
+              ) : ind && (ind.events || ind.required || ind.optional) ? (
+                // バー表示しないとき(=CalendarSheet 等)はドット集約のまま。
+                // 数字の位置を固定したいので絶対配置でセル下部に出す。
                 <div className="absolute bottom-1 left-1 flex gap-0.5">
                   {ind.events ? <span className="h-1.5 w-1.5 rounded-full bg-sky-400" /> : null}
                   {ind.required ? (
@@ -141,7 +186,7 @@ export function MonthCalendar({
                     <span className="h-1.5 w-1.5 rounded-full bg-slate-500" />
                   ) : null}
                 </div>
-              )}
+              ) : null}
             </button>
           );
         })}
@@ -152,9 +197,19 @@ export function MonthCalendar({
           <span className="inline-block h-3 w-3 rounded-sm bg-sky-100 dark:bg-sky-500/15" />
           授業日
         </span>
-        <Legend color="bg-sky-400" label="予定" />
-        <Legend color="bg-slate-200" label="必須" />
-        <Legend color="bg-slate-500" label="任意" />
+        {useBars ? (
+          <>
+            <BarLegend color="bg-sky-500/90" label="予定" />
+            <BarLegend color="bg-rose-500/90" label="必須" />
+            <BarLegend color="bg-slate-400/80 dark:bg-slate-500/80" label="任意" />
+          </>
+        ) : (
+          <>
+            <Legend color="bg-sky-400" label="予定" />
+            <Legend color="bg-slate-200" label="必須" />
+            <Legend color="bg-slate-500" label="任意" />
+          </>
+        )}
       </div>
     </div>
   );
@@ -164,6 +219,15 @@ function Legend({ color, label }: { color: string; label: string }) {
   return (
     <span className="inline-flex items-center gap-1">
       <span className={`h-1.5 w-1.5 rounded-full ${color}`} />
+      {label}
+    </span>
+  );
+}
+
+function BarLegend({ color, label }: { color: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className={`inline-block h-2 w-3 rounded-sm ${color}`} />
       {label}
     </span>
   );

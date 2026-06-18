@@ -1,39 +1,31 @@
 "use client";
 
-import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { MonthCalendar, type DayIndicators } from "@/components/MonthCalendar";
-import { DayDetailSheet } from "@/components/DayDetailSheet";
+import { MonthCalendar, type DayIndicators, type MonthEvent } from "@/components/MonthCalendar";
 
 export function CalendarClient({
   todayYmd,
   indicators,
+  events,
 }: {
   todayYmd: string;
   indicators?: Record<string, DayIndicators>;
+  events?: Record<string, MonthEvent[]>;
 }) {
   const router = useRouter();
-  const [selectedYmd, setSelectedYmd] = useState<string>(todayYmd);
-  const [sheetOpen, setSheetOpen] = useState(false);
 
   return (
-    <>
-      <MonthCalendar
-        selectedYmd={selectedYmd}
-        todayYmd={todayYmd}
-        indicators={indicators}
-        onSelect={(ymd) => {
-          setSelectedYmd(ymd);
-          setSheetOpen(true);
-        }}
-      />
-
-      <DayDetailSheet
-        open={sheetOpen}
-        onClose={() => setSheetOpen(false)}
-        ymd={selectedYmd}
-        onChanged={() => router.refresh()}
-      />
-    </>
+    <MonthCalendar
+      selectedYmd={todayYmd}
+      todayYmd={todayYmd}
+      indicators={indicators}
+      events={events}
+      onSelect={(ymd) => {
+        // 旧: DayDetailSheet をその場で開いていた。
+        // ユーザー要望で、その日の /today?date=YMD ページに遷移する。
+        const target = ymd === todayYmd ? "/today" : `/today?date=${ymd}`;
+        router.push(target);
+      }}
+    />
   );
 }

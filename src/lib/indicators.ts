@@ -1,6 +1,6 @@
 import { prisma } from "./db";
 import { getClassDayMap } from "./classDays";
-import type { DayIndicators } from "@/components/MonthCalendar";
+import type { DayIndicators, MonthEvent } from "@/components/MonthCalendar";
 
 export async function getMonthlyIndicators(
   fromYmd: string,
@@ -38,6 +38,41 @@ export async function getMonthlyIndicators(
     if (!isClass) continue;
     const bucket = (map[ymd] ||= { events: 0, required: 0, optional: 0 });
     bucket.isClassDay = true;
+  }
+  return map;
+}
+
+// /calendar の Google カレンダー風表示用。
+// 各日の OPEN な TaskInstance を時刻順に並べ、title 付きで返す。
+// indicators との違い: 件数ではなく実体(id/title/kind)を渡したいので別関数。
+// 範囲は wide range(±12 ヶ月)で呼ばれる想定だが、status=OPEN フィルタが効くので
+// 多くてもユーザー1人で数百件オーダー。
+export async function getMonthlyEvents(
+  fromYmd: string,
+  toYmd: string,
+): Promise<Record<string, MonthEvent[]>> {
+  const from = new Date(fromYmd + "T00:00:00+09:00");
+  const to = new Date(toYmd + "T23:59:59+09:00");
+
+  const rows = await prisma.taskInstance.findMany({
+    where: { dueAt: { gte: from, lte: to }, status: "OPEN" },
+    select: {
+      id: true,
+      title: true,
+      dueAt: true,
+      itemType: true,
+      required: true,
+    },
+    orderBy: [{ dueAt: "asc" }, { id: "asc" }],
+  });
+
+  const map: Record<string, MonthEvent[]> = {};
+  for (const r of rows) {
+    const jst = new Date(r.dueAt.getTime() + 9 * 60 * 60 * 1000);
+    const ymd = jst.toISOString().slice(0, 10);
+    const kind: MonthEvent["kind"] =
+      r.itemType === "EVENT" ? "event" : r.required ? "required" : "optional";
+    (map[ymd] ||= []).push({ id: r.id, title: r.title, kind });
   }
   return map;
 }

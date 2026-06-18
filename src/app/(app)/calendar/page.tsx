@@ -1,6 +1,6 @@
 import { format, toZonedTime } from "date-fns-tz";
 import { APP_TZ } from "@/lib/tz";
-import { getMonthlyIndicators } from "@/lib/indicators";
+import { getMonthlyEvents, getMonthlyIndicators } from "@/lib/indicators";
 import { CalendarClient } from "./CalendarClient";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +21,10 @@ export default async function CalendarPage() {
     timeZone: APP_TZ,
   });
   const { from, to } = wideRange(todayYmd);
-  const indicators = await getMonthlyIndicators(from, to);
+  const [indicators, events] = await Promise.all([
+    getMonthlyIndicators(from, to),
+    getMonthlyEvents(from, to),
+  ]);
 
   return (
     <main className="px-4 pt-6 pb-8">
@@ -31,7 +34,7 @@ export default async function CalendarPage() {
           日をタップ → 予定・タスクを追加 / 閲覧(Phase 2でGoogleカレンダーと統合)
         </p>
       </header>
-      <CalendarClient todayYmd={todayYmd} indicators={indicators} />
+      <CalendarClient todayYmd={todayYmd} indicators={indicators} events={events} />
     </main>
   );
 }
