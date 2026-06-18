@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { format } from "date-fns";
 import { ja } from "date-fns/locale/ja";
 import { CalendarSheet } from "@/components/CalendarSheet";
@@ -53,6 +53,7 @@ export function DateNav({
   const [sheetOpen, setSheetOpen] = useState(false);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const activeRef = useRef<HTMLButtonElement | null>(null);
+  const hasInitialCentered = useRef(false);
 
   const offsets: number[] = [];
   for (let n = -STRIP_HALF; n <= STRIP_HALF; n++) offsets.push(n);
@@ -64,14 +65,20 @@ export function DateNav({
   };
 
   // viewYmd が変わる度に、選択チップを水平中央に寄せる。
-  // 初回マウント時は瞬時、それ以降はスムーズに。
-  useEffect(() => {
+  // - useLayoutEffect: paint 前に scrollLeft を確定させて、
+  //   ストリップが左端から滑ってくるチラつきを防ぐ。
+  // - 初回 = instant(瞬時)、以降の遷移は smooth で気持ち良く。
+  useLayoutEffect(() => {
     const scroller = scrollerRef.current;
     const active = activeRef.current;
     if (!scroller || !active) return;
     const target =
       active.offsetLeft - scroller.clientWidth / 2 + active.clientWidth / 2;
-    scroller.scrollTo({ left: target, behavior: "smooth" });
+    scroller.scrollTo({
+      left: target,
+      behavior: hasInitialCentered.current ? "smooth" : "auto",
+    });
+    hasInitialCentered.current = true;
   }, [viewYmd]);
 
   return (
@@ -118,7 +125,10 @@ export function DateNav({
       <div
         ref={scrollerRef}
         data-swipe-ignore
-        className="mt-3 -mx-4 overflow-x-auto overscroll-x-contain scroll-smooth px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        // position: relative を付けないと、子の offsetLeft が
+        // 上位の positioned 祖先(body 等)基準になり、デスクトップで
+        // 中央寄せされたレイアウトだと scroll target が大幅にズレる。
+        className="relative mt-3 -mx-4 overflow-x-auto overscroll-x-contain scroll-smooth px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         <div className="flex min-w-max gap-1.5">
           {strip.map((ymd) => {
