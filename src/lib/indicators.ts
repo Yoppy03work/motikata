@@ -1,6 +1,18 @@
+import { formatInTimeZone } from "date-fns-tz";
 import { prisma } from "./db";
 import { getClassDayMap } from "./classDays";
+import { APP_TZ } from "./tz";
 import type { DayIndicators, MonthEvent } from "@/components/MonthCalendar";
+
+// DateTime → "YYYY-MM-DD" を APP_TZ ベースで返す。
+// 手書きの "Date.getTime() + 9h → toISOString().slice(0,10)" は JST が
+// DST を持たないため今は動くが、プロジェクト規約 (today/page.tsx,
+// dispatchReminders.ts など) は formatInTimeZone を使っており、ここだけ
+// 例外にしておく合理性が無い。将来 APP_TZ を DST のある TZ に振り替えた
+// 際の事故を避けるため揃える。
+function ymdInAppTz(d: Date): string {
+  return formatInTimeZone(d, APP_TZ, "yyyy-MM-dd");
+}
 
 export async function getMonthlyIndicators(
   fromYmd: string,
@@ -25,9 +37,7 @@ export async function getMonthlyIndicators(
   // ズレることを防げる。
   for (const r of rows) {
     if (r.status !== "OPEN") continue;
-    // Asia/Tokyo日に丸める
-    const jst = new Date(r.dueAt.getTime() + 9 * 60 * 60 * 1000);
-    const ymd = jst.toISOString().slice(0, 10);
+    const ymd = ymdInAppTz(r.dueAt);
     const bucket = (map[ymd] ||= { events: 0, required: 0, optional: 0 });
     if (r.itemType === "EVENT") bucket.events = (bucket.events ?? 0) + 1;
     else if (r.required) bucket.required = (bucket.required ?? 0) + 1;
@@ -81,8 +91,7 @@ export async function getMonthlyEvents(
 
   const map: Record<string, MonthEvent[]> = {};
   for (const r of rows) {
-    const jst = new Date(r.dueAt.getTime() + 9 * 60 * 60 * 1000);
-    const ymd = jst.toISOString().slice(0, 10);
+    const ymd = ymdInAppTz(r.dueAt);
     const kind: MonthEvent["kind"] =
       r.itemType === "EVENT" ? "event" : r.required ? "required" : "optional";
     (map[ymd] ||= []).push({ id: r.id, title: r.title, kind });
