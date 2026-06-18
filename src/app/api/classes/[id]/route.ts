@@ -92,12 +92,38 @@ export async function PATCH(
     (existing.classroom ?? null) !== (nextClassroom ?? null) ||
     (existing.teacher ?? null) !== (nextTeacher ?? null);
 
+  // dayOfWeek が変わった場合は in-place 更新では救えない:
+  // sourceExternalId = "class:<id>:<ymd>" の ymd は古い曜日の日付なので、
+  // 表示情報の書き直し経路 (displayChanged 分岐) で同じ ymd に dueAt を
+  // 再構築しても「間違った曜日に EVENT が残る」状態になる。さらに
+  // expand-today は class:<id>:<new-ymd> として新しい曜日にもう一行
+  // 作るので、二重表示 (古い曜日 + 新しい曜日) になってしまう。
+  // 既存の未来 instance を一旦削除して、expand-today に再生成させるのが
+  // 安全。過去 instance は学習履歴/Checklist の進捗保持のため触らない
+  // (DELETE エンドポイントと同じ方針)。
+  const dayOfWeekChanged =
+    parsed.data.dayOfWeek !== undefined &&
+    parsed.data.dayOfWeek !== existing.dayOfWeek;
+
   try {
     const item = await prisma.$transaction(async (tx) => {
       const updated = await tx.classSchedule.update({
         where: { id },
         data: parsed.data,
       });
+
+      if (dayOfWeekChanged) {
+        const now = new Date();
+        await tx.taskInstance.deleteMany({
+          where: {
+            source: "CLASS",
+            sourceExternalId: { startsWith: `class:${id}:` },
+            status: "OPEN",
+            dueAt: { gt: now },
+          },
+        });
+        return updated;
+      }
 
       // expand-today が既に materialize 済みの未来 TaskInstance(source=CLASS,
       // status=OPEN)を新しい表示情報で書き直す。
