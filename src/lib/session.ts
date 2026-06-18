@@ -1,4 +1,5 @@
 import type { SessionOptions } from "iron-session";
+import { resolveCookieSecure } from "./cookieSecure";
 
 export interface SessionData {
   authed?: boolean;
@@ -7,15 +8,7 @@ export interface SessionData {
 
 const isProd = process.env.NODE_ENV === "production";
 const envSecret = process.env.SESSION_SECRET;
-// SESSION_COOKIE_SECURE を明示指定すれば優先(HTTP ローカルで動かす docker 本番ビルド向け)。
-// 未指定なら NODE_ENV=production のとき true、それ以外 false。
-const cookieSecureEnv = process.env.SESSION_COOKIE_SECURE;
-const cookieSecure =
-  cookieSecureEnv === "true"
-    ? true
-    : cookieSecureEnv === "false"
-      ? false
-      : isProd;
+const cookieSecure = resolveCookieSecure();
 
 if (isProd && (!envSecret || envSecret.length < 32)) {
   throw new Error(
