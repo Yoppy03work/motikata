@@ -2,7 +2,12 @@ import { formatInTimeZone } from "date-fns-tz";
 import { prisma } from "./db";
 import { getClassDayMap } from "./classDays";
 import { APP_TZ } from "./tz";
-import type { DayIndicators, MonthEvent } from "@/components/MonthCalendar";
+import {
+  MAX_BARS_PER_CELL,
+  type DayIndicators,
+  type MonthEvent,
+  type MonthEventDay,
+} from "@/components/MonthCalendar";
 
 // DateTime → "YYYY-MM-DD" を APP_TZ ベースで返す。
 // 手書きの "Date.getTime() + 9h → toISOString().slice(0,10)" は JST が
@@ -73,7 +78,7 @@ const KIND_PRIORITY: Record<MonthEvent["kind"], number> = {
 export async function getMonthlyEvents(
   fromYmd: string,
   toYmd: string,
-): Promise<Record<string, MonthEvent[]>> {
+): Promise<Record<string, MonthEventDay>> {
   const from = new Date(fromYmd + "T00:00:00+09:00");
   const to = new Date(toYmd + "T23:59:59+09:00");
 
@@ -89,15 +94,26 @@ export async function getMonthlyEvents(
     orderBy: [{ dueAt: "asc" }, { id: "asc" }],
   });
 
-  const map: Record<string, MonthEvent[]> = {};
+  // 一旦全件 map に積み、kind 優先度で並べ直してから MAX_BARS_PER_CELL で
+  // 切り詰める。サーバー側で先にカットすることで RSC payload を抑え、
+  // 1日 50件のような病的ユーザーでも 50 件 title が乗らない。
+  // 切り捨てた残数は hidden に保持して「+N 件」表示の精度を維持。
+  const buckets: Record<string, MonthEvent[]> = {};
   for (const r of rows) {
     const ymd = ymdInAppTz(r.dueAt);
     const kind: MonthEvent["kind"] =
       r.itemType === "EVENT" ? "event" : r.required ? "required" : "optional";
-    (map[ymd] ||= []).push({ id: r.id, title: r.title, kind });
+    (buckets[ymd] ||= []).push({ id: r.id, title: r.title, kind });
   }
-  for (const ymd of Object.keys(map)) {
-    map[ymd].sort((a, b) => KIND_PRIORITY[a.kind] - KIND_PRIORITY[b.kind]);
+  const map: Record<string, MonthEventDay> = {};
+  for (const ymd of Object.keys(buckets)) {
+    const sorted = buckets[ymd].sort(
+      (a, b) => KIND_PRIORITY[a.kind] - KIND_PRIORITY[b.kind],
+    );
+    map[ymd] = {
+      events: sorted.slice(0, MAX_BARS_PER_CELL),
+      hidden: Math.max(0, sorted.length - MAX_BARS_PER_CELL),
+    };
   }
   return map;
 }
