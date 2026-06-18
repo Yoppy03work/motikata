@@ -14,19 +14,43 @@ type Status = {
   lastError?: string | null;
 };
 
+type CalendarRow = {
+  id: number;
+  summary: string;
+  isPrimary: boolean;
+  colorHex: string | null;
+  enabled: boolean;
+  lastSyncAt: string | null;
+  lastError: string | null;
+};
+
 async function fetchStatus(): Promise<Status> {
   const res = await fetch("/api/oauth/google/status", { cache: "no-store" });
   if (!res.ok) return { connected: false };
   return (await res.json()) as Status;
 }
 
+async function fetchCalendars(): Promise<CalendarRow[]> {
+  const res = await fetch("/api/google/calendars", { cache: "no-store" });
+  if (!res.ok) return [];
+  const body = (await res.json().catch(() => ({}))) as { calendars?: CalendarRow[] };
+  return body.calendars ?? [];
+}
+
 export function GoogleCalendarSettings() {
   const router = useRouter();
   const params = useSearchParams();
   const [status, setStatus] = useState<Status | null>(null);
+  const [calendars, setCalendars] = useState<CalendarRow[] | null>(null);
   const [busy, startBusy] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const refresh = async () => {
+    const [s, cs] = await Promise.all([fetchStatus(), fetchCalendars()]);
+    setStatus(s);
+    setCalendars(cs);
+  };
 
   // /api/oauth/google/callback から ?google=ok&msg=... or ?google=error&msg=... で
   // 戻ってくる。1 度表示したら URL から消す。
@@ -44,7 +68,7 @@ export function GoogleCalendarSettings() {
   }, [params]);
 
   useEffect(() => {
-    void fetchStatus().then(setStatus);
+    void refresh();
   }, []);
 
   const handleConnect = () => {
@@ -71,11 +95,11 @@ export function GoogleCalendarSettings() {
         setMessage(
           `同期完了: 追加 ${body.added ?? 0} / 更新 ${body.updated ?? 0} / 取消 ${body.cancelled ?? 0} / スキップ ${body.skipped ?? 0}`,
         );
-        void fetchStatus().then(setStatus);
+        await refresh();
         router.refresh();
       } else {
         setError(`同期失敗: ${body.error ?? res.status}`);
-        void fetchStatus().then(setStatus);
+        await refresh();
       }
     });
   };
@@ -89,10 +113,33 @@ export function GoogleCalendarSettings() {
       if (res.ok) {
         setMessage("連携を解除しました");
         setStatus({ connected: false });
+        setCalendars([]);
         router.refresh();
       } else {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
         setError(`解除失敗: ${body.error ?? res.status}`);
+      }
+    });
+  };
+
+  const handleToggle = (id: number, enabled: boolean) => {
+    setMessage(null);
+    setError(null);
+    startBusy(async () => {
+      const res = await fetch(`/api/google/calendars/${id}/toggle`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      });
+      if (res.ok) {
+        // 楽観的に local state を更新 + ステータス再読込で確定値に揃える。
+        setCalendars((prev) =>
+          prev ? prev.map((c) => (c.id === id ? { ...c, enabled } : c)) : prev,
+        );
+      } else {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        setError(`切替失敗: ${body.error ?? res.status}`);
+        await refresh();
       }
     });
   };
@@ -149,6 +196,51 @@ export function GoogleCalendarSettings() {
               連携解除
             </button>
           </div>
+
+          {calendars && calendars.length > 0 ? (
+            <div className="space-y-1.5">
+              <div className="text-[11px] text-slate-600 dark:text-slate-400">
+                取り込みカレンダー (チェックを外すと同期から除外)
+              </div>
+              <ul className="space-y-1">
+                {calendars.map((c) => (
+                  <li
+                    key={c.id}
+                    className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-2 py-1.5 dark:border-slate-700 dark:bg-slate-950"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={c.enabled}
+                      disabled={busy}
+                      onChange={(e) => handleToggle(c.id, e.target.checked)}
+                      className="h-3.5 w-3.5"
+                    />
+                    <span
+                      className="inline-block h-3 w-3 shrink-0 rounded-sm"
+                      style={{ background: c.colorHex ?? "#94a3b8" }}
+                      aria-hidden="true"
+                    />
+                    <span className="flex-1 truncate text-xs text-slate-800 dark:text-slate-200">
+                      {c.summary}
+                      {c.isPrimary ? (
+                        <span className="ml-1 text-[10px] text-sky-600 dark:text-sky-400">
+                          (主)
+                        </span>
+                      ) : null}
+                    </span>
+                    {c.lastError ? (
+                      <span
+                        className="text-[10px] text-rose-600 dark:text-rose-400"
+                        title={c.lastError}
+                      >
+                        エラー
+                      </span>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </>
       ) : (
         <>

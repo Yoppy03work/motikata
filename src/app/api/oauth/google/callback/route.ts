@@ -98,8 +98,6 @@ export async function GET(req: NextRequest) {
       accessToken: tokens.access_token,
       accessTokenExpiresAt: expiresAt,
       scope: tokens.scope,
-      // 初回連携時は syncToken なし → 次回 sync で timeMin=now-30d の full sync
-      syncToken: null,
     },
     update: {
       email,
@@ -107,10 +105,17 @@ export async function GET(req: NextRequest) {
       accessToken: tokens.access_token,
       accessTokenExpiresAt: expiresAt,
       scope: tokens.scope,
-      // 再連携時に syncToken を一旦 null に戻す。token 期限切れと同様に full sync。
-      syncToken: null,
       lastError: null,
     },
+  });
+
+  // 再連携時はぶら下がっている GoogleCalendar 行の syncToken を一旦 null に
+  // 戻し、次回 sync で events.list を timeMin=now-30d の full sync に降格させる。
+  // (Phase 2 で syncToken は GoogleCalendar 側に移管したため、credential 単体
+  //  ではなくぶら下がる行全てを更新する)
+  await prisma.googleCalendar.updateMany({
+    where: { credential: { singletonKey: "default" } },
+    data: { syncToken: null },
   });
 
   return redirectToSettings(`Google カレンダー連携完了: ${email}`, false);
