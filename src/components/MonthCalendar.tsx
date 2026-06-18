@@ -120,6 +120,15 @@ export function MonthCalendar({
           const cellEvents = events?.[ymd] ?? [];
           const visibleBars = cellEvents.slice(0, MAX_BARS_PER_CELL);
           const overflow = Math.max(0, cellEvents.length - MAX_BARS_PER_CELL);
+          // useBars はモード(レイアウト・凡例)制御。
+          // 個別セルで描画するものは「バーが1件以上あればバー、無ければ
+          // indicators カウントからドット」にフォールバックする。
+          // events が空 {} で返ったとき(新規ユーザ等)や、Promise.all で
+          // indicators と events のクエリ間に race が起きて events だけ
+          // 拾い損ねたケースでも、indicators 側にカウントが残っていれば
+          // 「予定があるはずなのに何も出ない」セルを避けられる。
+          const hasBars = visibleBars.length > 0;
+          const hasDots = !!(ind && (ind.events || ind.required || ind.optional));
           const dow = d.getDay();
           return (
             <button
@@ -155,34 +164,33 @@ export function MonthCalendar({
                 {format(d, "d")}
               </div>
 
-              {useBars ? (
-                visibleBars.length > 0 ? (
-                  <div className="mt-1 flex flex-col gap-0.5">
-                    {visibleBars.map((ev) => (
-                      <div
-                        key={ev.id}
-                        className={`truncate rounded-sm px-1 py-px text-[10px] leading-tight ${barClass(ev.kind)}`}
-                        title={ev.title}
-                      >
-                        {ev.title}
-                      </div>
-                    ))}
-                    {overflow > 0 ? (
-                      <div className="px-1 text-[10px] leading-tight text-slate-600 dark:text-slate-400">
-                        +{overflow} 件
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null
-              ) : ind && (ind.events || ind.required || ind.optional) ? (
-                // バー表示しないとき(=CalendarSheet 等)はドット集約のまま。
+              {hasBars ? (
+                <div className="mt-1 flex flex-col gap-0.5">
+                  {visibleBars.map((ev) => (
+                    <div
+                      key={ev.id}
+                      className={`truncate rounded-sm px-1 py-px text-[10px] leading-tight ${barClass(ev.kind)}`}
+                      title={ev.title}
+                    >
+                      {ev.title}
+                    </div>
+                  ))}
+                  {overflow > 0 ? (
+                    <div className="px-1 text-[10px] leading-tight text-slate-600 dark:text-slate-400">
+                      +{overflow} 件
+                    </div>
+                  ) : null}
+                </div>
+              ) : hasDots ? (
+                // バーが描画されないとき(CalendarSheet・useBars=true でも
+                // その日にイベントが無いとき)はドット集約にフォールバック。
                 // 数字の位置を固定したいので絶対配置でセル下部に出す。
                 <div className="absolute bottom-1 left-1 flex gap-0.5">
-                  {ind.events ? <span className="h-1.5 w-1.5 rounded-full bg-sky-400" /> : null}
-                  {ind.required ? (
+                  {ind?.events ? <span className="h-1.5 w-1.5 rounded-full bg-sky-400" /> : null}
+                  {ind?.required ? (
                     <span className="h-1.5 w-1.5 rounded-full bg-slate-200" />
                   ) : null}
-                  {ind.optional ? (
+                  {ind?.optional ? (
                     <span className="h-1.5 w-1.5 rounded-full bg-slate-500" />
                   ) : null}
                 </div>
