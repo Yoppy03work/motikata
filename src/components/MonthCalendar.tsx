@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   addDays,
   addMonths,
@@ -64,6 +64,19 @@ export function MonthCalendar({
     return new Date(y, m - 1, 1);
   }, [selectedYmd]);
   const [cursor, setCursor] = useState<Date>(initialMonth);
+
+  // selectedYmd が外部要因 (例: /calendar の深夜跨ぎ refresh で todayYmd が
+  // 翌月に切り替わる) で月を跨いだとき、cursor が以前の月のまま固まらない
+  // ようにする。同月内の selectedYmd 変化では cursor を動かさない
+  // (= ユーザーが手動で月送りした状態を壊さない)。
+  useEffect(() => {
+    setCursor((prev) => {
+      const sameMonth =
+        prev.getFullYear() === initialMonth.getFullYear() &&
+        prev.getMonth() === initialMonth.getMonth();
+      return sameMonth ? prev : initialMonth;
+    });
+  }, [initialMonth]);
 
   const monthCells = useMemo(() => {
     const start = startOfWeek(startOfMonth(cursor), { weekStartsOn: 0 });
