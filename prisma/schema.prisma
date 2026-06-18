@@ -47,6 +47,7 @@ enum TaskSource {
   RECURRING
   CLASS
   ACADEMIC
+  GOOGLE
 }
 
 enum ReminderChannel {
@@ -292,6 +293,32 @@ model CitPortalCredential {
   lastError      String?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
+}
+
+// Google カレンダー連携用の OAuth 2.0 認証情報(単一ユーザー前提なので 1 行のみ)。
+// refreshTokenEnc は AES-256-GCM。鍵は CREDENTIAL_ENCRYPTION_KEY 派生 (DOMAIN="google-calendar")。
+// accessToken は短寿命 (~1h) なので生で持つが、worker/web 間で共有するため DB に置く。
+// accessTokenExpiresAt が過去になったら refresh する。
+// scope は認可されたスコープ文字列 (検証用; ユーザーが Google 側で剥がしたら検知できる)。
+// email は表示用 + どの Google アカウントで連携したかの記録。
+// lastSyncAt / lastError は他 credential と同じ運用ログ。
+// singletonKey は固定値 "default" を入れて DB レベルで 1 行制約を効かせる。
+model GoogleCredential {
+  id                    Int       @id @default(autoincrement())
+  singletonKey          String    @unique @default("default")
+  email                 String
+  refreshTokenEnc       String
+  accessToken           String?
+  accessTokenExpiresAt  DateTime?
+  scope                 String
+  // 次回 incremental sync 用 token。null なら次回 full sync (timeMin=now-30d)。
+  // events.list の応答に含まれる nextSyncToken を保存し、次回そのまま使う。
+  // 410 Gone (= token 失効) を受けたら null に戻して full sync に降格。
+  syncToken             String?
+  lastSyncAt            DateTime?
+  lastError             String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 }
 
 model PushSubscription {

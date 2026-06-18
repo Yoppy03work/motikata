@@ -1,0 +1,172 @@
+"use client";
+
+// Google カレンダー連携 (Phase 1) UI。
+// - 未連携: 「Google で連携」ボタン (→ /api/oauth/google/authorize に遷移)
+// - 連携済み: email・最終同期時刻・直近エラー表示 + 「今すぐ同期」「解除」ボタン
+
+import { useEffect, useState, useTransition } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+
+type Status = {
+  connected: boolean;
+  email?: string;
+  lastSyncAt?: string;
+  lastError?: string | null;
+};
+
+async function fetchStatus(): Promise<Status> {
+  const res = await fetch("/api/oauth/google/status", { cache: "no-store" });
+  if (!res.ok) return { connected: false };
+  return (await res.json()) as Status;
+}
+
+export function GoogleCalendarSettings() {
+  const router = useRouter();
+  const params = useSearchParams();
+  const [status, setStatus] = useState<Status | null>(null);
+  const [busy, startBusy] = useTransition();
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // /api/oauth/google/callback から ?google=ok&msg=... or ?google=error&msg=... で
+  // 戻ってくる。1 度表示したら URL から消す。
+  useEffect(() => {
+    const flag = params.get("google");
+    const msg = params.get("msg");
+    if (flag === "ok" && msg) setMessage(msg);
+    else if (flag === "error" && msg) setError(msg);
+    if (flag) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("google");
+      url.searchParams.delete("msg");
+      window.history.replaceState({}, "", url.toString());
+    }
+  }, [params]);
+
+  useEffect(() => {
+    void fetchStatus().then(setStatus);
+  }, []);
+
+  const handleConnect = () => {
+    // /api/oauth/google/authorize は 302 で Google に飛ばす。
+    // <a href> ではなく明示的に window.location でフロー開始(Cookie set のため
+    // ブラウザに必ず保存させる)。
+    window.location.href = "/api/oauth/google/authorize";
+  };
+
+  const handleSyncNow = () => {
+    setMessage(null);
+    setError(null);
+    startBusy(async () => {
+      const res = await fetch("/api/oauth/google/sync-now", { method: "POST" });
+      const body = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        added?: number;
+        updated?: number;
+        cancelled?: number;
+        skipped?: number;
+      };
+      if (res.ok && body.ok) {
+        setMessage(
+          `同期完了: 追加 ${body.added ?? 0} / 更新 ${body.updated ?? 0} / 取消 ${body.cancelled ?? 0} / スキップ ${body.skipped ?? 0}`,
+        );
+        void fetchStatus().then(setStatus);
+        router.refresh();
+      } else {
+        setError(`同期失敗: ${body.error ?? res.status}`);
+        void fetchStatus().then(setStatus);
+      }
+    });
+  };
+
+  const handleDisconnect = () => {
+    if (!confirm("Google カレンダー連携を解除します。よろしいですか？")) return;
+    setMessage(null);
+    setError(null);
+    startBusy(async () => {
+      const res = await fetch("/api/oauth/google/disconnect", { method: "POST" });
+      if (res.ok) {
+        setMessage("連携を解除しました");
+        setStatus({ connected: false });
+        router.refresh();
+      } else {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        setError(`解除失敗: ${body.error ?? res.status}`);
+      }
+    });
+  };
+
+  if (!status) {
+    return <p className="text-xs text-slate-500">読み込み中...</p>;
+  }
+
+  return (
+    <div className="space-y-3">
+      {message ? (
+        <div className="rounded-md border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs text-sky-700 dark:text-sky-300">
+          {message}
+        </div>
+      ) : null}
+      {error ? (
+        <div className="rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-700 dark:text-rose-300">
+          {error}
+        </div>
+      ) : null}
+
+      {status.connected ? (
+        <>
+          <div className="text-xs text-slate-700 dark:text-slate-300">
+            <div>
+              連携先: <span className="font-medium">{status.email}</span>
+            </div>
+            {status.lastSyncAt ? (
+              <div>最終同期: {new Date(status.lastSyncAt).toLocaleString("ja-JP")}</div>
+            ) : (
+              <div>最終同期: まだ実行されていません</div>
+            )}
+            {status.lastError ? (
+              <div className="mt-1 text-rose-600 dark:text-rose-400">
+                直近エラー: {status.lastError}
+              </div>
+            ) : null}
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={handleSyncNow}
+              disabled={busy}
+              className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-1.5 text-xs text-sky-700 dark:text-sky-300 active:scale-95 disabled:opacity-50"
+            >
+              {busy ? "同期中..." : "今すぐ同期"}
+            </button>
+            <button
+              type="button"
+              onClick={handleDisconnect}
+              disabled={busy}
+              className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-xs text-rose-700 dark:text-rose-300 active:scale-95 disabled:opacity-50"
+            >
+              連携解除
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="text-xs text-slate-600 dark:text-slate-400">
+            Google カレンダーの予定を /calendar と /today に表示します (Phase 1: 読み取り専用)。
+            連携には Google Cloud Console での OAuth 設定が必要 ({" "}
+            <code className="text-[10px]">docs/google-calendar.md</code> 参照)。
+          </p>
+          <button
+            type="button"
+            onClick={handleConnect}
+            disabled={busy}
+            className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-1.5 text-xs text-sky-700 dark:text-sky-300 active:scale-95 disabled:opacity-50"
+          >
+            Google で連携
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
