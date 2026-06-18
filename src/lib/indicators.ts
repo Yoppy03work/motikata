@@ -2,11 +2,11 @@ import { formatInTimeZone } from "date-fns-tz";
 import { prisma } from "./db";
 import { getClassDayMap } from "./classDays";
 import { APP_TZ } from "./tz";
-import {
-  MAX_BARS_PER_CELL,
-  type DayIndicators,
-  type MonthEvent,
-  type MonthEventDay,
+import { MAX_BARS_PER_CELL } from "./calendarConstants";
+import type {
+  DayIndicators,
+  MonthEvent,
+  MonthEventDay,
 } from "@/components/MonthCalendar";
 
 // DateTime → "YYYY-MM-DD" を APP_TZ ベースで返す。

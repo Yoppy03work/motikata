@@ -13,6 +13,7 @@ import {
   startOfWeek,
 } from "date-fns";
 import { ja } from "date-fns/locale/ja";
+import { MAX_BARS_PER_CELL } from "@/lib/calendarConstants";
 
 export type DayIndicators = {
   events?: number;
@@ -39,8 +40,6 @@ export type MonthEventDay = {
   events: MonthEvent[]; // 最大 MAX_BARS_PER_CELL 件
   hidden: number; // events に含めきれなかった残り件数(>=0)
 };
-
-export const MAX_BARS_PER_CELL = 3;
 
 function barClass(kind: MonthEvent["kind"]): string {
   if (kind === "event") return "bg-sky-500/90 text-white";
