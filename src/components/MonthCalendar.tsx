@@ -165,35 +165,9 @@ export function MonthCalendar({
               </div>
 
               {hasBars ? (
-                <div className="mt-1 flex flex-col gap-0.5">
-                  {visibleBars.map((ev) => (
-                    <div
-                      key={ev.id}
-                      className={`truncate rounded-sm px-1 py-px text-[10px] leading-tight ${barClass(ev.kind)}`}
-                      title={ev.title}
-                    >
-                      {ev.title}
-                    </div>
-                  ))}
-                  {overflow > 0 ? (
-                    <div className="px-1 text-[10px] leading-tight text-slate-600 dark:text-slate-400">
-                      +{overflow} 件
-                    </div>
-                  ) : null}
-                </div>
-              ) : hasDots ? (
-                // バーが描画されないとき(CalendarSheet・useBars=true でも
-                // その日にイベントが無いとき)はドット集約にフォールバック。
-                // 数字の位置を固定したいので絶対配置でセル下部に出す。
-                <div className="absolute bottom-1 left-1 flex gap-0.5">
-                  {ind?.events ? <span className="h-1.5 w-1.5 rounded-full bg-sky-400" /> : null}
-                  {ind?.required ? (
-                    <span className="h-1.5 w-1.5 rounded-full bg-slate-200" />
-                  ) : null}
-                  {ind?.optional ? (
-                    <span className="h-1.5 w-1.5 rounded-full bg-slate-500" />
-                  ) : null}
-                </div>
+                <CellBars visibleBars={visibleBars} overflow={overflow} />
+              ) : hasDots && ind ? (
+                <CellDots ind={ind} />
               ) : null}
             </button>
           );
@@ -238,5 +212,47 @@ function BarLegend({ color, label }: { color: string; label: string }) {
       <span className={`inline-block h-2 w-3 rounded-sm ${color}`} />
       {label}
     </span>
+  );
+}
+
+// 1 セルに最大 3 件、超過は「+N 件」で集約するバー描画。
+// セル下部に flex column で並べる(セル上部は日付数字が固定)。
+function CellBars({
+  visibleBars,
+  overflow,
+}: {
+  visibleBars: MonthEvent[];
+  overflow: number;
+}) {
+  return (
+    <div className="mt-1 flex flex-col gap-0.5">
+      {visibleBars.map((ev) => (
+        <div
+          key={ev.id}
+          className={`truncate rounded-sm px-1 py-px text-[10px] leading-tight ${barClass(ev.kind)}`}
+          title={ev.title}
+        >
+          {ev.title}
+        </div>
+      ))}
+      {overflow > 0 ? (
+        <div className="px-1 text-[10px] leading-tight text-slate-600 dark:text-slate-400">
+          +{overflow} 件
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// バーが描画されない経路 (CalendarSheet・useBars=true でその日に
+// イベントが無いケース) のドット集約フォールバック。
+// セル下部に絶対配置して、日付数字の位置を固定する。
+function CellDots({ ind }: { ind: DayIndicators }) {
+  return (
+    <div className="absolute bottom-1 left-1 flex gap-0.5">
+      {ind.events ? <span className="h-1.5 w-1.5 rounded-full bg-sky-400" /> : null}
+      {ind.required ? <span className="h-1.5 w-1.5 rounded-full bg-slate-200" /> : null}
+      {ind.optional ? <span className="h-1.5 w-1.5 rounded-full bg-slate-500" /> : null}
+    </div>
   );
 }
