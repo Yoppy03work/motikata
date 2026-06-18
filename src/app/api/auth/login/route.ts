@@ -33,7 +33,12 @@ async function readAnonCookieState(): Promise<{
 function attachAnonCookie(res: NextResponse, signedAnonId: string): NextResponse {
   res.cookies.set(ANON_COOKIE_NAME, signedAnonId, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure:
+      process.env.SESSION_COOKIE_SECURE === "true"
+        ? true
+        : process.env.SESSION_COOKIE_SECURE === "false"
+          ? false
+          : process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
     maxAge: ANON_COOKIE_MAX_AGE,
