@@ -8,7 +8,10 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { requireAuthApi } from "@/lib/authGuard";
 import { ItemType, TaskPriority } from "@/lib/validation/enums";
-import { pushTaskInstanceToGoogle } from "@/lib/googleCalendarWrite";
+import {
+  deleteGoogleEventForTaskInstance,
+  pushTaskInstanceToGoogle,
+} from "@/lib/googleCalendarWrite";
 
 export const dynamic = "force-dynamic";
 
@@ -80,4 +83,48 @@ export async function PATCH(
     }
     throw e;
   }
+}
+
+// DELETE /api/tasks/[id]
+// TaskInstance を実削除。GOOGLE 由来なら Google 側 event も削除する。
+// Google 側削除が失敗しても local は消す (戻り値に warning を入れて UI に通知)。
+// これにより「Google で復活させた」シナリオも次回 sync で自然に取り込まれる。
+export async function DELETE(
+  _req: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const guard = await requireAuthApi();
+  if (guard) return guard;
+  const { id: idStr } = await params;
+  const id = Number(idStr);
+  if (!Number.isInteger(id)) {
+    return NextResponse.json({ error: "invalid id" }, { status: 400 });
+  }
+  const existing = await prisma.taskInstance.findUnique({
+    where: { id },
+    select: { source: true },
+  });
+  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
+
+  let googleDeleteError: string | undefined;
+  if (existing.source === "GOOGLE") {
+    const r = await deleteGoogleEventForTaskInstance(id);
+    if (!r.ok) googleDeleteError = r.error;
+  }
+  try {
+    await prisma.taskInstance.delete({ where: { id } });
+  } catch (e) {
+    if (
+      e instanceof Prisma.PrismaClientKnownRequestError &&
+      e.code === "P2025"
+    ) {
+      // 並行削除で消えていた → 成功扱い
+      return NextResponse.json({ ok: true });
+    }
+    throw e;
+  }
+  return NextResponse.json({
+    ok: true,
+    ...(googleDeleteError ? { googleDeleteError } : {}),
+  });
 }
