@@ -182,12 +182,11 @@ export function TaskForm({
         } else {
           msg = "保存に失敗しました";
         }
-        // 502 (Google insert 失敗) と 500 (transaction failure 後の rollback) の
-        // どちらでも googleCalendarId が選択されていれば retry hint を出す。
-        if (
-          (res.status === 502 || res.status === 500) &&
-          googleCalendarId !== null
-        ) {
+        // 502 (Google insert 失敗) のときだけ retry hint を出す。
+        // Phase 9: 500 は DB transaction 失敗 (Google は既に成功して rollback
+        // 済み) なので、『モチカタのみに切り替えて再試行』しても DB 障害が
+        // 解消するとは限らない。誤誘導になるので 500 では出さない。
+        if (res.status === 502 && googleCalendarId !== null) {
           msg += "\n保存先を『モチカタのみ』に切り替えて再試行できます";
         }
         setError(msg);
