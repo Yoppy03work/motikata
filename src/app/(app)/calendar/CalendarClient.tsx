@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { MonthCalendar, type DayIndicators, type MonthEvent } from "@/components/MonthCalendar";
+import { MonthCalendar, type DayIndicators, type MonthEventDay } from "@/components/MonthCalendar";
 
 // JST における現在の YMD を返す。
 // /calendar は server render なので todayYmd はリクエスト時点で固定される。
@@ -20,7 +20,7 @@ export function CalendarClient({
 }: {
   todayYmd: string;
   indicators?: Record<string, DayIndicators>;
-  events?: Record<string, MonthEvent[]>;
+  events?: Record<string, MonthEventDay>;
 }) {
   const router = useRouter();
 

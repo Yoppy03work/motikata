@@ -13,6 +13,7 @@ import {
   startOfWeek,
 } from "date-fns";
 import { ja } from "date-fns/locale/ja";
+import { MAX_BARS_PER_CELL } from "@/lib/calendarConstants";
 
 export type DayIndicators = {
   events?: number;
@@ -22,15 +23,23 @@ export type DayIndicators = {
 };
 
 // Google カレンダー風のカラーバー表示で使う、日ごとのイベント1件分の情報。
-// indicators (件数のみ) とは別に events?: Record<ymd, MonthEvent[]> を渡したとき、
-// MonthCalendar はドット集約ではなく title 付きバーを描画する。
+// indicators (件数のみ) とは別に events を渡したとき、MonthCalendar はドット
+// 集約ではなく title 付きバーを描画する。
 export type MonthEvent = {
   id: number;
   title: string;
   kind: "event" | "required" | "optional";
 };
 
-const MAX_BARS_PER_CELL = 3;
+// 1日あたりのペイロード単位。
+// サーバー側 (indicators.ts getMonthlyEvents) で MAX_BARS_PER_CELL 件まで
+// 切り詰めて返し、残りは hidden カウントに集約する。これにより 1 日に 50 件
+// 課題があるパワーユーザーでも RSC payload に 50 件 title が乗らない。
+// hidden を別に保持することで「+N 件」の正確な表示は維持できる。
+export type MonthEventDay = {
+  events: MonthEvent[]; // 最大 MAX_BARS_PER_CELL 件
+  hidden: number; // events に含めきれなかった残り件数(>=0)
+};
 
 function barClass(kind: MonthEvent["kind"]): string {
   if (kind === "event") return "bg-sky-500/90 text-white";
@@ -52,7 +61,7 @@ export function MonthCalendar({
   todayYmd: string;
   indicators?: Record<string, DayIndicators>;
   // 渡されたとき、ドット集約をやめてバー表示(Google カレンダー風)に切り替える。
-  events?: Record<string, MonthEvent[]>;
+  events?: Record<string, MonthEventDay>;
   onSelect: (ymd: string) => void;
   className?: string;
 }) {
@@ -130,9 +139,12 @@ export function MonthCalendar({
           const isToday = ymd === todayYmd;
           const isSelected = ymd === selectedYmd;
           const ind = indicators?.[ymd];
-          const cellEvents = events?.[ymd] ?? [];
-          const visibleBars = cellEvents.slice(0, MAX_BARS_PER_CELL);
-          const overflow = Math.max(0, cellEvents.length - MAX_BARS_PER_CELL);
+          // events はサーバー側で MAX_BARS_PER_CELL 件まで切り詰めて返される。
+          // hidden に残り件数が入る (+N 件 用)。null fallback で旧呼び出しに
+          // 後方互換: indicators だけのケース (CalendarSheet) は変わらず動く。
+          const cellEntry = events?.[ymd];
+          const visibleBars = cellEntry?.events ?? [];
+          const overflow = cellEntry?.hidden ?? 0;
           // useBars はモード(レイアウト・凡例)制御。
           // 個別セルで描画するものは「バーが1件以上あればバー、無ければ
           // indicators カウントからドット」にフォールバックする。
