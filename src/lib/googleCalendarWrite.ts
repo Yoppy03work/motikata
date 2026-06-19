@@ -164,6 +164,10 @@ export async function pushTaskInstanceToGoogle(
       source: true,
       sourceExternalId: true,
       googleEtag: true,
+      // Phase 13: ローカル endAt / isAllDay を見て event 形式を保持する。
+      // GET fallback は次の trade-off として残しておく (ローカルが古い場合の保険)。
+      endAt: true,
+      isAllDay: true,
       googleCalendar: { select: { externalId: true, credential: true } },
     },
   });
@@ -183,34 +187,40 @@ export async function pushTaskInstanceToGoogle(
   if (patch.title !== undefined) body.summary = patch.title;
   if (patch.notes !== undefined) body.description = patch.notes ?? "";
   if (patch.dueAt !== undefined) {
-    // Phase 11: dueAt 変更時、元の Google event の形式 (all-day vs timed) を
-    // 保持する。元が all-day (start.date) のイベントを dateTime で送ると、
-    // 不可逆に『時間付き 1 時間枠』に変換されて他端末/他カレンダーアプリでも
-    // 見た目が壊れるバグがあった。
-    //   1. GET で既存 event を取得し、start.date / start.dateTime を判定
-    //   2. all-day なら start.date / end.date で送る (end は翌日が Google 仕様)
-    //   3. timed なら従来通り start.dateTime / end.dateTime (+1h end)
-    // GET 失敗時は安全側に倒して timed として送る (旧挙動と同等)。
-    const existingFormat = await detectGoogleEventDateFormat(
-      ti.googleCalendar.externalId,
-      ti.sourceExternalId,
-      accessToken,
-    );
-    if (existingFormat === "all-day") {
-      const ymdJst = formatJstYmd(patch.dueAt);
-      // Google all-day の end.date は exclusive (翌日)
-      const nextDayJst = formatJstYmd(
-        new Date(patch.dueAt.getTime() + 24 * 60 * 60 * 1000),
+    // Phase 13: ローカル isAllDay / endAt から形式を決定する。
+    // Phase 11 では毎回 GET していたが、Phase 13 で endAt/isAllDay を保持する
+    // ようにしたのでローカル情報で十分。ローカルが NULL の legacy 行のみ
+    // GET fallback で形式判定 (Phase 11 と同じ).
+    let useAllDay = ti.isAllDay;
+    if (ti.endAt === null && ti.isAllDay === false) {
+      // legacy 行 (Phase 13 migration 前に取り込み、それ以降 Google から
+      // 更新されてない) は形式情報が無いので GET fallback。
+      const existingFormat = await detectGoogleEventDateFormat(
+        ti.googleCalendar.externalId,
+        ti.sourceExternalId,
+        accessToken,
       );
+      useAllDay = existingFormat === "all-day";
+    }
+    if (useAllDay) {
+      const ymdJst = formatJstYmd(patch.dueAt);
+      // Phase 13: ローカル endAt を持っていればそれを exclusive end として
+      // 使う (multi-day all-day の保持)。無ければ翌日 = single day。
+      const endDate = ti.endAt ?? new Date(patch.dueAt.getTime() + 24 * 60 * 60 * 1000);
+      const nextDayJst = formatJstYmd(endDate);
       body.start = { date: ymdJst };
       body.end = { date: nextDayJst };
     } else {
       const iso = patch.dueAt.toISOString();
       body.start = { dateTime: iso, timeZone: "Asia/Tokyo" };
-      // end が未指定だと Google が 422 を返す。dueAt + 1h を end とする
-      // (event の duration を保てない代わりに、一律 1 時間枠で扱う)。
-      const end = new Date(patch.dueAt.getTime() + 60 * 60 * 1000);
-      body.end = { dateTime: end.toISOString(), timeZone: "Asia/Tokyo" };
+      // Phase 13: ローカル endAt を持っていれば duration を維持する。
+      // 無ければ dueAt + 1h を fallback とする (Phase 1 〜 12 と同じ挙動)。
+      // また dueAt 変更で endAt が逆転 (end <= start) する場合も +1h に補正。
+      let endDt = ti.endAt;
+      if (!endDt || endDt.getTime() <= patch.dueAt.getTime()) {
+        endDt = new Date(patch.dueAt.getTime() + 60 * 60 * 1000);
+      }
+      body.end = { dateTime: endDt.toISOString(), timeZone: "Asia/Tokyo" };
     }
   }
   if (Object.keys(body).length === 0) return { ok: true }; // 何も書き換えない
@@ -280,6 +290,12 @@ export type GoogleEventInsert = {
   title: string;
   notes?: string | null;
   dueAt: Date;
+  // Phase 13: 任意。指定すれば duration を保持して Google に作成。
+  // 未指定なら従来通り dueAt + 1h end (timed) で作成。
+  endAt?: Date | null;
+  // Phase 13: true なら all-day event として作成 (start.date / end.date)。
+  // 未指定なら timed として作成。all-day の end は exclusive (+1day default)。
+  isAllDay?: boolean;
 };
 
 export async function createGoogleEvent(
@@ -307,14 +323,36 @@ export async function createGoogleEvent(
     return { ok: false, error: `access_token: ${(e as Error).message}` };
   }
 
-  const iso = payload.dueAt.toISOString();
-  const end = new Date(payload.dueAt.getTime() + 60 * 60 * 1000);
-  const body = {
+  // Phase 13: isAllDay フラグで body 構築を分岐。
+  // - all-day: start.date / end.date (end は exclusive。+1day default)
+  // - timed: start.dateTime / end.dateTime (end は inclusive。endAt 指定または
+  //          dueAt + 1h fallback)
+  const baseBody = {
     summary: payload.title,
     description: payload.notes ?? "",
-    start: { dateTime: iso, timeZone: "Asia/Tokyo" },
-    end: { dateTime: end.toISOString(), timeZone: "Asia/Tokyo" },
   };
+  let body: Record<string, unknown>;
+  if (payload.isAllDay) {
+    const ymdJst = formatJstYmd(payload.dueAt);
+    const endDate = payload.endAt ?? new Date(payload.dueAt.getTime() + 24 * 60 * 60 * 1000);
+    const nextDayJst = formatJstYmd(endDate);
+    body = {
+      ...baseBody,
+      start: { date: ymdJst },
+      end: { date: nextDayJst },
+    };
+  } else {
+    const iso = payload.dueAt.toISOString();
+    let endDt = payload.endAt;
+    if (!endDt || endDt.getTime() <= payload.dueAt.getTime()) {
+      endDt = new Date(payload.dueAt.getTime() + 60 * 60 * 1000);
+    }
+    body = {
+      ...baseBody,
+      start: { dateTime: iso, timeZone: "Asia/Tokyo" },
+      end: { dateTime: endDt.toISOString(), timeZone: "Asia/Tokyo" },
+    };
+  }
 
   const url = `${EVENTS_API_BASE}/${encodeURIComponent(cal.externalId)}/events`;
   const res = await fetch(url, {

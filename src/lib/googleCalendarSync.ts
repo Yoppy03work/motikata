@@ -157,6 +157,29 @@ function parseEventDate(ev: GoogleEvent): Date | null {
   return null;
 }
 
+// Phase 13: end.date / end.dateTime をパースする。
+// Google all-day では end.date は exclusive (翌日)。timed では end.dateTime は inclusive。
+// ローカルでは TaskInstance.endAt にそのまま保存する (= multi-day all-day も保持)。
+function parseEventEnd(ev: GoogleEvent): Date | null {
+  const dt = ev.end?.dateTime;
+  if (dt) {
+    const d = new Date(dt);
+    return Number.isFinite(d.getTime()) ? d : null;
+  }
+  const d = ev.end?.date;
+  if (d) {
+    const parsed = new Date(`${d}T00:00:00+09:00`);
+    return Number.isFinite(parsed.getTime()) ? parsed : null;
+  }
+  return null;
+}
+
+// Phase 13: all-day event 判定。Google API では start.date / start.dateTime
+// が存在する側で判定できるので heuristic 不要。
+function isAllDayEvent(ev: GoogleEvent): boolean {
+  return !!ev.start?.date && !ev.start?.dateTime;
+}
+
 function buildNotes(ev: GoogleEvent): string | null {
   const parts: string[] = [];
   if (ev.location) parts.push(`場所: ${ev.location}`);
@@ -285,10 +308,16 @@ async function syncOneCalendar(
           // Phase 7 で status: "OPEN" を unconditional に入れていたが、
           // DONE/SKIPPED の Google タスクが毎 sync で OPEN に巻き戻る regression
           // を起こしていた。SKIPPED→OPEN (undelete) のみ別 path で復活させる。
+          // Phase 13: endAt / isAllDay を Google から保持 (multi-day all-day &
+          // event duration 復元用)。
+          const endAt = parseEventEnd(ev);
+          const isAllDay = isAllDayEvent(ev);
           const updateData = {
             title: ev.summary,
             notes: buildNotes(ev),
             dueAt,
+            endAt,
+            isAllDay,
             color,
             googleEtag: ev.etag ?? null,
             googleUpdatedAt: updatedAt,

@@ -169,6 +169,14 @@ model TaskInstance {
   title            String
   notes            String?
   dueAt            DateTime
+  // Phase 13: 終了時刻 / all-day flag。Google カレンダー連携で multi-day all-day
+  // event を保持する用 + 通常の event の duration 復元用。
+  // - timed event: endAt = 終了 DateTime、isAllDay = false
+  // - all-day event: endAt = 翌日以降の DateTime (exclusive)、isAllDay = true
+  // - dueAt 単独運用 (旧挙動): endAt = null、isAllDay = false
+  // 既存行は NULL/false で開始 (Google 由来は次回 sync で埋まる)。
+  endAt            DateTime?
+  isAllDay         Boolean             @default(false)
   itemType         ItemType            @default(TASK)
   required         Boolean             @default(true)
   priority         TaskPriority        @default(MID)
