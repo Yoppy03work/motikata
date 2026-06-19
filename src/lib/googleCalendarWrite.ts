@@ -24,6 +24,9 @@ const EVENTS_API_BASE = "https://www.googleapis.com/calendar/v3/calendars";
 // safe default として「transient と仮定 → SHORT TTL」を選ぶ。間違えても 1 時間
 // 後に sync で取り込み直されるだけで、真の forbidden を見逃しても致命的では
 // ない (権限剥奪なら次回 sync で 403 が再発する)。
+// Phase 10: Google Calendar API が 403 で返す既知の transient reason のみ。
+// (5xx で返る backendError や documentation に明記されていない曖昧な reason は
+//  含めない。確実に 403 として観測される rate / quota 系のみ)。
 const TRANSIENT_403_REASONS = new Set([
   "rateLimitExceeded",
   "userRateLimitExceeded",
@@ -32,8 +35,6 @@ const TRANSIENT_403_REASONS = new Set([
   "quotaExceeded",
   "dailyLimitExceeded",
   "dailyLimitExceededUnreg",
-  "backendError",
-  "variableTermLimitExceeded",
 ]);
 function isTransient403(body: string): boolean {
   if (!body) return true; // 空 body は parse 不能 → safe default
