@@ -157,6 +157,17 @@ cron.schedule(
   { timezone: "Asia/Tokyo" },
 );
 
+// sync-google: 5 分間隔で Google カレンダー → モチカタ取り込み (Phase 1)。
+// incremental sync (syncToken) なので 1 回あたりの転送量は少ない。
+// 未連携の場合はサーバー側で skip 扱い(error にならない)。
+cron.schedule(
+  "*/5 * * * *",
+  () => {
+    void callJob("/api/jobs/sync-google", "sync-google");
+  },
+  { timezone: "Asia/Tokyo" },
+);
+
 process.on("SIGINT", () => {
   console.log("[worker] shutting down");
   process.exit(0);
