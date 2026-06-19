@@ -93,7 +93,12 @@ export async function PATCH(
 // DELETE /api/tasks/[id]
 // TaskInstance を実削除。GOOGLE 由来なら Google 側 event も削除する。
 // Google 側削除が失敗しても local は消す (戻り値に warning を入れて UI に通知)。
-// これにより「Google で復活させた」シナリオも次回 sync で自然に取り込まれる。
+//
+// Phase 6/7 (tombstone): Google API の結果に応じた TTL で tombstone を upsert
+// するため、Google で undelete した event は tombstone 有効期間中 (30 日 long /
+// 1 時間 short) は再取り込みされない。期限切れ後は events.list で同 id が来ると
+// 再生成される。401 などの credential エラーでは tombstone を書かないため、
+// 再連携後は通常通り取り込まれる。
 export async function DELETE(
   _req: Request,
   { params }: { params: Promise<{ id: string }> },

@@ -19,6 +19,7 @@
 
 import { prisma } from "./db";
 import { ensureGoogleAccessToken } from "./googleAccessToken";
+import { parseGoogleTimestamp } from "./googleCalendarWrite";
 import {
   listCalendarList,
   type GoogleCalendarListEntry,
@@ -38,7 +39,12 @@ export type GoogleSyncResult = {
   calendars: number;
   added: number;
   updated: number;
+  // malformed / dueAt 欠落 / pagination で cancelled→confirmed が並んだ稀ケース
+  // の合計。Phase 7 で tombstone 由来は分離。
   skipped: number;
+  // tombstone でブロックされた件数 (= 期待動作)。観測しても運用判断に
+  // 結びつかないため、skipped と分けて出す。
+  skippedTombstone: number;
   cancelled: number;
   error?: string;
 };
@@ -167,11 +173,13 @@ async function syncOneCalendar(
   updated: number;
   cancelled: number;
   skipped: number;
+  skippedTombstone: number;
 }> {
   let added = 0;
   let updated = 0;
   let cancelled = 0;
   let skipped = 0;
+  let skippedTombstone = 0;
   let nextPageToken: string | undefined;
   let nextSyncToken: string | undefined;
   let usingFullSync = false;
@@ -197,12 +205,20 @@ async function syncOneCalendar(
 
   // Phase 6: ローカルで削除したイベントの tombstone をまとめて読み込んでおく
   // (有効期限内のもののみ)。events.list で同じ id が戻ってきたら再生成しない。
+  // Phase 7: 長い pagination 中に他リクエストで新 tombstone が書かれた場合
+  // 検出を逃すため、新規作成 (create) のときだけは個別 re-check する。
   const now = new Date();
   const tombstones = await prisma.googleTombstone.findMany({
     where: { googleCalendarId: cal.id, expiresAt: { gt: now } },
     select: { externalEventId: true },
   });
   const tombstoneSet = new Set(tombstones.map((t) => t.externalEventId));
+
+  // Phase 7: 同じ events.list response のページ内で cancelled → confirmed の
+  // 順で 2 件出てくる稀ケースに備え、1 度 cancelled で削除した tombstone を
+  // 同 sync 内では復元しない (= 既に cancel された id が後で confirmed に
+  // 化けても再生成しない)。次回 sync で再評価される。
+  const cancelledThisRun = new Set<string>();
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
@@ -222,14 +238,24 @@ async function syncOneCalendar(
               });
               cancelled++;
             }
-            // Google 側で cancelled になったので、tombstone は不要 (上書き
+            // Google 側で cancelled になったので tombstone は不要 (上書き
             // 防止の意味がない)。あれば消す。
+            // Phase 7: 同じ run 内で再度 confirmed が出ても再生成しないよう、
+            // cancelled として観測した id は記録しておく。
             if (tombstoneSet.has(ev.id)) {
               await prisma.googleTombstone.deleteMany({
                 where: { googleCalendarId: cal.id, externalEventId: ev.id },
               });
               tombstoneSet.delete(ev.id);
             }
+            cancelledThisRun.add(ev.id);
+            continue;
+          }
+          // Phase 7: 同じ run 内で既に cancelled として観測した id は無視。
+          // Google ページネーション境界で cancelled → confirmed が並ぶ稀ケース
+          // で「消したはずなのに復活」を防ぐ。
+          if (cancelledThisRun.has(ev.id)) {
+            skipped++;
             continue;
           }
           // Phase 6: tombstone があるイベントは「モチカタで消した」シグナル。
@@ -239,7 +265,7 @@ async function syncOneCalendar(
           // 期限 (30 日) を過ぎたら tombstone は自動的に掃除されるので
           // 「ずっと再生成されない」状態にはならない。
           if (tombstoneSet.has(ev.id)) {
-            skipped++;
+            skippedTombstone++;
             continue;
           }
           const dueAt = parseEventDate(ev);
@@ -250,7 +276,10 @@ async function syncOneCalendar(
           // 表示色: event 個別の colorId > calendar の colorHex の優先で解決。
           const eventColor = resolveGoogleEventColor(ev.colorId);
           const color = eventColor ?? cal.colorHex ?? null;
-          const updatedAt = ev.updated ? new Date(ev.updated) : null;
+          const updatedAt = parseGoogleTimestamp(ev.updated);
+          // Phase 7: 復活 (Google で undelete) を検出して status=OPEN に戻す。
+          // 直前の cancelled で SKIPPED にしていた行は、ここに来た時点で
+          // 「Google が confirmed と言っているので有効」とみなす。
           const data = {
             title: ev.summary,
             notes: buildNotes(ev),
@@ -263,18 +292,37 @@ async function syncOneCalendar(
             color,
             googleEtag: ev.etag ?? null,
             googleUpdatedAt: updatedAt,
+            status: "OPEN" as const,
           };
           const existing = await prisma.taskInstance.findFirst({
             where: { source: "GOOGLE", sourceExternalId: ev.id },
-            select: { id: true, googleEtag: true, googleUpdatedAt: true },
+            select: {
+              id: true,
+              googleEtag: true,
+              googleUpdatedAt: true,
+              status: true,
+            },
           });
           if (existing) {
-            // Phase 6: loop avoidance。
-            // events.list 応答の etag が既に保持しているものと完全一致 →
-            // 「自分が直前に events.patch / insert した結果が echo されてきた」
-            // か「他に何も変化がない」かのどちらかなので、no-op で抜ける。
-            // (DB 書き込み・余計な update カウンタを節約)
-            if (ev.etag && existing.googleEtag === ev.etag) {
+            // Phase 6/7: loop avoidance。etag 一致 = 「自分が直前に書いた
+            // echo」または「変化無し」。
+            // ただし SKIPPED 状態のときは復活させる必要があるので skip しない。
+            if (
+              ev.etag &&
+              existing.googleEtag === ev.etag &&
+              existing.status === "OPEN"
+            ) {
+              continue;
+            }
+            // Phase 7 (Reviewer の loop-race 防止): Google updated が古い
+            // ものを上書きしない。新しい updated が来たときだけ書き戻し対象。
+            // (5 min sync ↔ sub-second push の競合で、stale な etag に
+            //  巻き戻されるのを防ぐ)
+            if (
+              existing.googleUpdatedAt &&
+              updatedAt &&
+              updatedAt.getTime() < existing.googleUpdatedAt.getTime()
+            ) {
               continue;
             }
             await prisma.taskInstance.update({
@@ -283,6 +331,22 @@ async function syncOneCalendar(
             });
             updated++;
           } else {
+            // Phase 7: pagination 中に書き加えられた tombstone を再度確認
+            // (snapshot の snapshot 問題)。
+            const fresh = await prisma.googleTombstone.findUnique({
+              where: {
+                googleCalendarId_externalEventId: {
+                  googleCalendarId: cal.id,
+                  externalEventId: ev.id,
+                },
+              },
+              select: { expiresAt: true },
+            });
+            if (fresh && fresh.expiresAt > new Date()) {
+              tombstoneSet.add(ev.id);
+              skippedTombstone++;
+              continue;
+            }
             await prisma.taskInstance.create({ data });
             added++;
           }
@@ -316,7 +380,7 @@ async function syncOneCalendar(
       syncToken: nextSyncToken ?? cal.syncToken,
     },
   });
-  return { added, updated, cancelled, skipped };
+  return { added, updated, cancelled, skipped, skippedTombstone };
 }
 
 export async function syncGoogleCalendar(): Promise<GoogleSyncResult> {
@@ -330,6 +394,7 @@ export async function syncGoogleCalendar(): Promise<GoogleSyncResult> {
       added: 0,
       updated: 0,
       skipped: 0,
+      skippedTombstone: 0,
       cancelled: 0,
       error: "Google カレンダー未連携",
     };
@@ -350,6 +415,7 @@ export async function syncGoogleCalendar(): Promise<GoogleSyncResult> {
       added: 0,
       updated: 0,
       skipped: 0,
+      skippedTombstone: 0,
       cancelled: 0,
       error: msg,
     };
@@ -370,6 +436,7 @@ export async function syncGoogleCalendar(): Promise<GoogleSyncResult> {
       added: 0,
       updated: 0,
       skipped: 0,
+      skippedTombstone: 0,
       cancelled: 0,
       error: msg,
     };
@@ -379,6 +446,7 @@ export async function syncGoogleCalendar(): Promise<GoogleSyncResult> {
   let updated = 0;
   let cancelled = 0;
   let skipped = 0;
+  let skippedTombstone = 0;
   let succeeded = 0;
   // どれか 1 つでも events.list が落ちた場合は credential.lastError に書いて
   // 戻り値も ok=false にする。ただし他のカレンダーは可能な範囲で進める。
@@ -391,6 +459,7 @@ export async function syncGoogleCalendar(): Promise<GoogleSyncResult> {
       updated += r.updated;
       cancelled += r.cancelled;
       skipped += r.skipped;
+      skippedTombstone += r.skippedTombstone;
       succeeded++;
     } catch (e) {
       const msg = e instanceof Error ? e.message : "unknown";
@@ -413,6 +482,7 @@ export async function syncGoogleCalendar(): Promise<GoogleSyncResult> {
     updated,
     cancelled,
     skipped,
+    skippedTombstone,
     error: firstError ?? undefined,
   };
 }

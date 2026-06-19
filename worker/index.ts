@@ -169,9 +169,12 @@ cron.schedule(
 );
 
 // cleanup-google-tombstones: 毎日 04:30 JST。
-// 30 日経過した tombstone を物理削除して、ローカル削除済みなのに sync 側で
-// スキップされ続ける状態が永続化しないようにする。GoogleCalendar 同期 cron
-// (04:00) と被らせない時間にする。
+// 30 日 (long) / 1 時間 (short) 経過した tombstone を物理削除して、ローカル
+// 削除済みなのに sync 側でスキップされ続ける状態が永続化しないようにする。
+// sync-google (5 分間隔) と時刻が重なる時間 (04:30) で走るが、別 endpoint
+// で別 transaction なので競合は無い (GoogleTombstone を sync が read する
+// snapshot は read 時点で確定するため、cleanup の delete が遅れて反映される
+// だけ)。
 cron.schedule(
   "30 4 * * *",
   () => {

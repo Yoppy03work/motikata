@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireAuthApi } from "@/lib/authGuard";
 import { TaskCreateInput, TaskListQuery } from "@/lib/validation/task";
-import { createGoogleEvent } from "@/lib/googleCalendarWrite";
+import { createGoogleEvent, rollbackOrphanGoogleEvent } from "@/lib/googleCalendarWrite";
 
 export async function GET(req: Request) {
   const guard = await requireAuthApi();
@@ -86,58 +86,69 @@ export async function POST(req: Request) {
     googleUpdatedAt = r.updatedAt;
   }
 
-  const created = await prisma.$transaction(async (tx) => {
-    const instance = await tx.taskInstance.create({
-      data: {
-        title,
-        notes,
-        dueAt: due,
-        itemType,
-        required,
-        priority,
-        source: googleCalendarId ? "GOOGLE" : "MANUAL",
-        sourceExternalId: googleEventId,
-        googleCalendarId: googleCalendarId ?? null,
-        googleEtag,
-        googleUpdatedAt,
-        status: "OPEN",
-        tags: tagIds.length
-          ? {
-              create: tagIds.map((tagId) => ({ tagId })),
-            }
-          : undefined,
-        checklist: checklist.length
-          ? {
-              create: checklist.map((c, i) => ({
-                label: c.label,
-                orderIdx: c.orderIdx ?? i,
-              })),
-            }
-          : undefined,
-      },
-      include: {
-        tags: { include: { tag: true } },
-        checklist: { orderBy: { orderIdx: "asc" } },
-      },
-    });
+  // Phase 7: transaction が失敗した場合、Google 側に作った orphan event を
+  // best-effort で消す。Google 側だけ残ったままに「片寄」せず、ユーザーが
+  // 再試行できる状態に戻す。
+  let created;
+  try {
+    created = await prisma.$transaction(async (tx) => {
+      const instance = await tx.taskInstance.create({
+        data: {
+          title,
+          notes,
+          dueAt: due,
+          itemType,
+          required,
+          priority,
+          source: googleCalendarId ? "GOOGLE" : "MANUAL",
+          sourceExternalId: googleEventId,
+          googleCalendarId: googleCalendarId ?? null,
+          googleEtag,
+          googleUpdatedAt,
+          status: "OPEN",
+          tags: tagIds.length
+            ? {
+                create: tagIds.map((tagId) => ({ tagId })),
+              }
+            : undefined,
+          checklist: checklist.length
+            ? {
+                create: checklist.map((c, i) => ({
+                  label: c.label,
+                  orderIdx: c.orderIdx ?? i,
+                })),
+              }
+            : undefined,
+        },
+        include: {
+          tags: { include: { tag: true } },
+          checklist: { orderBy: { orderIdx: "asc" } },
+        },
+      });
 
-    if (reminders.length) {
-      for (const r of reminders) {
-        const remindAt = new Date(due.getTime() + r.offsetMin * 60_000);
-        const dedupeKey = `${instance.id}:${remindAt.toISOString()}:${r.channel}:0`;
-        await tx.reminder.create({
-          data: {
-            instanceId: instance.id,
-            remindAt,
-            channel: r.channel,
-            escalationLevel: 0,
-            dedupeKey,
-          },
-        });
+      if (reminders.length) {
+        for (const r of reminders) {
+          const remindAt = new Date(due.getTime() + r.offsetMin * 60_000);
+          const dedupeKey = `${instance.id}:${remindAt.toISOString()}:${r.channel}:0`;
+          await tx.reminder.create({
+            data: {
+              instanceId: instance.id,
+              remindAt,
+              channel: r.channel,
+              escalationLevel: 0,
+              dedupeKey,
+            },
+          });
+        }
       }
+      return instance;
+    });
+  } catch (e) {
+    if (googleCalendarId && googleEventId) {
+      await rollbackOrphanGoogleEvent(googleCalendarId, googleEventId);
     }
-    return instance;
-  });
+    throw e;
+  }
 
   return NextResponse.json({ instance: created }, { status: 201 });
 }
