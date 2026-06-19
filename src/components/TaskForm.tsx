@@ -6,6 +6,15 @@ type Priority = "LOW" | "MID" | "HIGH";
 type Channel = "PUSH" | "SLACK";
 type ReminderPreset = "none" | "at" | "m15" | "h1" | "d1";
 
+// /settings で連携した Google カレンダーのうち enabled=true のもの。
+// "送信先" ドロップダウンに並べる。
+type GoogleCalendarOption = {
+  id: number;
+  summary: string;
+  isPrimary: boolean;
+  colorHex: string | null;
+};
+
 const priorityLabel: Record<Priority, string> = { HIGH: "高", MID: "中", LOW: "低" };
 
 const presets: { key: ReminderPreset; label: string; offsetMin: number | null }[] = [
@@ -45,11 +54,49 @@ export function TaskForm({
   const [conflicts, setConflicts] = useState<
     { id: number; title: string; dueAt: string; itemType: "TASK" | "EVENT" }[]
   >([]);
+  // Google カレンダー連携 (Phase 4 + 5): 有効カレンダー一覧 + 選択中の id。
+  // null = 「モチカタのみ」(googleCalendarId なし)。連携してない or 一覧
+  // 取得失敗時はセレクタを描画しない (空配列で空表示)。
+  const [googleCalendars, setGoogleCalendars] = useState<GoogleCalendarOption[]>([]);
+  const [googleCalendarId, setGoogleCalendarId] = useState<number | null>(null);
 
   // ymd prop が変わった場合(モーダルを開き直したケース等)は date を追従させる
   useEffect(() => {
     setDate(ymd);
   }, [ymd]);
+
+  // Google カレンダー連携状況の取得。マウント時に 1 度だけ。
+  // 401 / 失敗時は空配列のまま (= セレクタ非表示)。
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/google/calendars", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : { calendars: [] }))
+      .then(
+        (body: {
+          calendars?: { id: number; summary: string; isPrimary: boolean; colorHex: string | null; enabled: boolean }[];
+        }) => {
+          if (cancelled) return;
+          // 「送信先」候補は enabled なものに限定。
+          // disabled なカレンダー (= 取り込まない設定にしているもの) に push
+          // できると意図と食い違うため除外する。
+          const list = (body.calendars ?? [])
+            .filter((c) => c.enabled)
+            .map(({ id, summary, isPrimary, colorHex }) => ({
+              id,
+              summary,
+              isPrimary,
+              colorHex,
+            }));
+          setGoogleCalendars(list);
+        },
+      )
+      .catch(() => {
+        if (!cancelled) setGoogleCalendars([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // 日付/時刻が変わるたびに ±30分の重複をチェック
   useEffect(() => {
@@ -109,6 +156,9 @@ export function TaskForm({
       tagIds: [],
       checklist: cleanChecklist,
       reminders,
+      // googleCalendarId が選ばれていれば POST /api/tasks 側で events.insert
+      // を呼んで Google 側にも作る (Phase 4)。未選択なら従来通り MANUAL。
+      ...(googleCalendarId !== null ? { googleCalendarId } : {}),
     };
 
     startTransition(async () => {
@@ -161,6 +211,56 @@ export function TaskForm({
           />
         </div>
       </div>
+
+      {googleCalendars.length > 0 && (
+        <div>
+          <label className="mb-1 block text-xs text-slate-600 dark:text-slate-400">
+            保存先
+          </label>
+          <div className="flex flex-col gap-1 rounded-lg bg-slate-100 dark:bg-slate-900 p-1.5">
+            <label className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800">
+              <input
+                type="radio"
+                name="save-target"
+                checked={googleCalendarId === null}
+                onChange={() => setGoogleCalendarId(null)}
+                className="h-3.5 w-3.5"
+              />
+              <span>モチカタのみ</span>
+            </label>
+            {googleCalendars.map((c) => (
+              <label
+                key={c.id}
+                className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800"
+              >
+                <input
+                  type="radio"
+                  name="save-target"
+                  checked={googleCalendarId === c.id}
+                  onChange={() => setGoogleCalendarId(c.id)}
+                  className="h-3.5 w-3.5"
+                />
+                <span
+                  className="inline-block h-3 w-3 shrink-0 rounded-sm"
+                  style={{ background: c.colorHex ?? "#94a3b8" }}
+                  aria-hidden="true"
+                />
+                <span className="flex-1 truncate">
+                  Google: {c.summary}
+                  {c.isPrimary ? (
+                    <span className="ml-1 text-[10px] text-sky-600 dark:text-sky-400">
+                      (主)
+                    </span>
+                  ) : null}
+                </span>
+              </label>
+            ))}
+          </div>
+          <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
+            Google を選ぶとモチカタの保存と同時にカレンダーにも作成されます (失敗時は両方とも作成されません)
+          </p>
+        </div>
+      )}
 
       {conflicts.length > 0 && (
         <div className="rounded-lg border border-slate-500/40 bg-slate-500/10 p-3 text-xs text-slate-200">
