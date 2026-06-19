@@ -110,58 +110,50 @@
 - [x] BottomNav: 今日 / 時間割 / カレンダー / タスク / メモ / 設定 の 6 タブ
 - [x] PWA アイコン (純 Node PNG generator)
 
----
+### Google カレンダー連携 (Phase 1〜12 全マージ済み、2026-06-20)
+全 28 PR (`#2`〜`#29`) を develop にマージ完了。OAuth + 同期 + 双方向書き戻し +
+衝突解決 + ハードニングが揃った状態。
+ユーザー側の **Google Cloud Console セットアップ** が完了すれば即連携開始可能
+(`docs/google-calendar.md` 参照、`.env` に `GOOGLE_OAUTH_CLIENT_ID/SECRET/REDIRECT_BASE` を設定)。
 
-## 進行中 (open PR)
-
-### feature/slack-and-day-detail-fix → develop (PR #2)
-ベースの大型 feature ブランチ。Slack 配送 + DayDetailSheet DONE フィルタ。以下のスタック PR を順次マージして取り込む想定。
-
-### 高 recall レビュー (15 件中 11 件) → 個別 PR スタック
-[d7217a1..feature ブランチ tip] のレビューを元に、各指摘を個別 PR 化。マージ順は **#3 → #4 → #5 → #6 → #7 → #8 → #9 → #14 → #15 → #16**。
-
-| # | レビュー | 種類 | 内容 |
-|---|---|---|---|
-| #3 | [12] | 🔴 fix | event バー優先ソート |
-| #4 | [2] | 🔴 fix | バー空のときドット fallback |
-| #5 | [7] | 🔴 fix | JST 0 時跨ぎ refresh + cursor 同期 + mount 時 staleness check |
-| #6 | [4] | 🟢 cleanup | `resolveCookieSecure()` 共通化 |
-| #7 | [15] | 🟢 cleanup | `formatInTimeZone(APP_TZ)` 統一 |
-| #8 | [1] | 🟢 cleanup | Tailwind `pb-1`/`pb-3` 衝突解消 |
-| #9 | [8] | 🟢 cleanup | `CellBars`/`CellDots` 抽出 |
-| #14 | [10][14] | 🟡 perf | 1日 events をサーバー側 cap (hidden 集約) + MAX_BARS_PER_CELL を中立 lib に移設 (P1) |
-| #15 | [13] | 🟡 cleanup | prod + `SECURE=false` で起動時 warn |
-| #16 | — | 📝 docs | Google カレンダー連携の Phase 設計ドキュメント |
-
-レビュー指摘で Skip 判定:
-- [3] `useLayoutEffect` SSR フラッシュ(CSS だけで解決困難、現状受容)
-- [5] sub-second 精度 (旧コードと同じ)
-- [6] DayDetailSheet 撤去 (ユーザー要望通り)
-- [9] hasInitialCentered ref race (極稀)
-- [11] indicators/events 2 query 間 race (極稀、影響軽微)
-
-### Codex 自動レビュー対応 (個別)
-| # | 内容 |
-|---|---|
-| #10 | viewDate を `formatInTimeZone(APP_TZ)` で整形 |
-| #11 | AddFab で `?date=` クエリから日付プレフィル |
-| #12 | dayOfWeek 変更時に未来インスタンスを reconcile |
-| #13 | 時間割編集/作成で既存スロットとの重なりを拒否 |
+- [x] **Phase 1**: OAuth (Authorization Code + offline) + GoogleCredential テーブル
+      (`refreshTokenEnc` AES-256-GCM、`CREDENTIAL_ENCRYPTION_KEY` 派生) + primary calendar read-only sync
+      + `/api/oauth/google/{authorize,callback,disconnect,status,sync-now}` + worker cron 5 分
+- [x] **Phase 2**: 多カレンダー対応 (`GoogleCalendar` テーブル, per-calendar `syncToken`,
+      `calendarList` upsert) + Google 色追従 (公式 colorId → hex 静的テーブル)
+      + /settings カレンダー選択 UI + バー描画 inline `style.background` override
+- [x] **Phase 3**: モチカタ → Google patch (`pushTaskInstanceToGoogle`) で
+      title/notes/dueAt の write-back
+- [x] **Phase 4**: events.insert (`POST /api/tasks` の `googleCalendarId`) +
+      events.delete (`DELETE /api/tasks/[id]`) + `GoogleTombstone` 設計
+- [x] **Phase 5 (UI)**: TaskForm の「保存先」ラジオ (モチカタのみ / Google: 各カレンダー)
+- [x] **Phase 6**: 衝突解決 (etag/If-Match + tombstone TTL + cleanup cron + loop avoidance)
+- [x] **Phase 7**: Phase 6 review (Claude high-recall 11 件) 反映
+- [x] **Phase 8**: Phase 7 regression (Opus 4.8 review 5 件) 反映 — sync update payload を field 限定 +
+      rollbackOrphan tombstone 先書き
+- [x] **Phase 9**: Phase 8 regression (Opus 4.8 review 5 件) 反映 — rollbackOrphan を try/catch black hole +
+      reviveFromSkipped を etag/updatedAt 必須に + cancelled 経路 updateMany 化
+- [x] **Phase 10**: legacy NULL etag spurious revive を guard + `TRANSIENT_403_REASONS` dead entry 削除
+- [x] **Phase 11**: notes null preservation + all-day event GET/preserve + Google raw error sanitize +
+      route.ts named export 違反修正 (`GOOGLE_OAUTH_STATE_COOKIE` を lib に移設)
+- [x] **Phase 12**: 403 transient メッセージング (`kind="transient"` 経路) + PII redaction (`redactSensitive`)
 
 ---
 
-## やっていないこと / 未着手
+## 未着手 / 改善余地
 
-### Google カレンダー連携 (Phase 設計済み、`docs/google-calendar.md`)
-- [ ] **Phase 1**: OAuth + 単一カレンダー read-only
-  - GoogleCredential テーブル (refresh_token を `CREDENTIAL_ENCRYPTION_KEY` で暗号化)
-  - `/api/oauth/google/{authorize,callback,disconnect,sync-now}`
-  - worker cron に `syncGoogleCalendar` (5 分間隔、syncToken incremental + 410 で full)
-  - /settings 連携 UI
-  - **着手前にユーザーが Google Cloud Console で OAuth クライアント作成必要** (手順は `docs/google-calendar.md`)
-- [ ] **Phase 2**: 多カレンダー選択 + Google 色追従
-- [ ] **Phase 3**: モチカタ → Google 書き込み (GoogleEventMap)
-- [ ] **Phase 4**: 衝突解決 / 双方向運用ルール (etag + newer wins)
+### Google カレンダー連携の data model 限界 (Phase 13 候補)
+- [ ] `TaskInstance.endAt` 追加で multi-day all-day Google event の保存
+      (現状: dueAt + 1day で 1 日に collapse)
+- [ ] all-day と timed の明示フラグ (現状: dueAt 00:00 JST 判定の heuristic)
+- [ ] PATCH 経路の `googleConflict` を消費する UI (現状: response に乗せるだけ、消費先 UI 無し)
+- [ ] read-only calendar 検出 (現状: 403 forbidden の延々再試行ループの可能性)
+
+### Phase 6〜10 で acknowledged な低リスク trade-off (未対応)
+- [ ] `count != changed` の metric 厳密性 (updateMany の matched count を加算しているので no-op write も updated++ になる)
+- [ ] revive 経路で concurrent DELETE 発生時の observability gap (count=0 silent skip)
+- [ ] 401/403 rollback orphan の phantom 取り込み (1 サイクル発生し得る — user manual delete で回復)
+- [ ] cancelledThisRun ordering の counter 二重計上 (極稀)
 
 ### 運用安定化(継続)
 - [ ] CIT ポータル同期成功率の監視 (lastError ベースのアラート? Slack 通知?)
@@ -210,23 +202,41 @@ src/
 │     │  ├─ expand-today/
 │     │  ├─ escalate/
 │     │  ├─ cleanup-past-tasks/
+│     │  ├─ cleanup-google-tombstones/    ... Phase 6 で追加 (04:30 JST daily)
 │     │  ├─ dispatch-reminders/
-│     │  └─ manaba-sync/
+│     │  ├─ manaba-sync/
+│     │  └─ sync-google/                  ... Phase 1 で追加 (5 分間隔)
 │     ├─ cit-portal/
 │     ├─ manaba/
-│     └─ templates/
+│     ├─ templates/
+│     ├─ google/
+│     │  └─ calendars/                    ... GET 一覧 + POST [id]/toggle
+│     └─ oauth/google/                    ... authorize / callback / status /
+│                                              sync-now / disconnect
 ├─ components/
-│  ├─ MonthCalendar.tsx           ... バー描画 + CellBars/CellDots + cursor 同期
+│  ├─ MonthCalendar.tsx           ... バー描画 + CellBars/CellDots + cursor 同期 +
+│  │                                  events?: Record<ymd, MonthEventDay> 経由で
+│  │                                  Google 色 inline style override
 │  ├─ CalendarSheet.tsx           ... /today から開くドット mode 月ビュー
 │  ├─ BottomNav.tsx               ... 6 タブ
 │  ├─ AddFab.tsx                  ... + 追加 FAB (date プレフィル)
-│  ├─ TaskForm.tsx
+│  ├─ TaskForm.tsx                ... 「保存先」ラジオ (モチカタ / Google: 各カレンダー)
 │  └─ icons.tsx
 └─ lib/
    ├─ calendarConstants.ts        ... MAX_BARS_PER_CELL (中立 lib)
    ├─ cookieSecure.ts             ... Cookie Secure 解決 + prod warn
    ├─ session.ts                  ... iron-session 設定
-   ├─ credentialCrypto.ts         ... AES-256-GCM (CIT/manaba 共有、将来 Google も)
+   ├─ credentialKey.ts            ... CREDENTIAL_ENCRYPTION_KEY 派生 (共通)
+   ├─ manabaCrypto.ts / citPortalCrypto.ts
+   ├─ googleCrypto.ts             ... AES-256-GCM (DOMAIN="google-calendar")
+   ├─ googleOAuth.ts              ... state HMAC + authorize URL + token 交換 + revoke +
+   │                                  GOOGLE_OAUTH_STATE_COOKIE
+   ├─ googleAccessToken.ts        ... access_token 取得 + refresh
+   ├─ googleColors.ts             ... Google 公式 colorId → hex 静的テーブル
+   ├─ googleCalendarSync.ts       ... events.list (incremental + 410 fallback) +
+   │                                  tombstone + revive narrowing + loop avoidance
+   ├─ googleCalendarWrite.ts      ... events.patch/insert/delete + If-Match etag +
+   │                                  rollbackOrphan + redactSensitive logs
    ├─ citPortalSync.ts            ... SSO + scrape + 全置換 (空ガード付き)
    ├─ citPortalScrape.ts          ... UPRX HTML パーサ
    ├─ manabaSync.ts
@@ -234,8 +244,11 @@ src/
    ├─ tz.ts                       ... APP_TZ = "Asia/Tokyo"
    ├─ today.ts                    ... getDayItems
    └─ indicators.ts               ... getMonthlyIndicators + getMonthlyEvents
+                                      (Google 色を MonthEvent.color に流す)
 ```
 
 ---
 
-最終更新: 2026-06-18。レビュー対応 9 PR スタック + Google 連携設計ドキュメント追加直後。
+最終更新: 2026-06-20。Google カレンダー連携 Phase 1〜12 を全 28 PR で develop にマージ完了、
+develop tip = `46847ce`。本番ビルド + migration + smoke test 通過済み。ユーザー側の
+Google Cloud Console セットアップ待ち。
