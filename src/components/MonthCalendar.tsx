@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   addDays,
   addMonths,
@@ -13,12 +13,45 @@ import {
   startOfWeek,
 } from "date-fns";
 import { ja } from "date-fns/locale/ja";
+import { MAX_BARS_PER_CELL } from "@/lib/calendarConstants";
 
 export type DayIndicators = {
   events?: number;
   required?: number;
   optional?: number;
+  isClassDay?: boolean;
 };
+
+// Google カレンダー風のカラーバー表示で使う、日ごとのイベント1件分の情報。
+// indicators (件数のみ) とは別に events を渡したとき、MonthCalendar はドット
+// 集約ではなく title 付きバーを描画する。
+//
+// color (hex) があれば kind ベースの class より優先して inline style で描画。
+// Google カレンダー連携 (Phase 2) で取り込んだ予定はカレンダー固有色を
+// 帯びるので、ここに hex を入れて MonthCalendar 側で背景色を上書きする。
+// 手入力タスクは null/undefined のまま → kind ベースのトーンを使う。
+export type MonthEvent = {
+  id: number;
+  title: string;
+  kind: "event" | "required" | "optional";
+  color?: string | null;
+};
+
+// 1日あたりのペイロード単位。
+// サーバー側 (indicators.ts getMonthlyEvents) で MAX_BARS_PER_CELL 件まで
+// 切り詰めて返し、残りは hidden カウントに集約する。これにより 1 日に 50 件
+// 課題があるパワーユーザーでも RSC payload に 50 件 title が乗らない。
+// hidden を別に保持することで「+N 件」の正確な表示は維持できる。
+export type MonthEventDay = {
+  events: MonthEvent[]; // 最大 MAX_BARS_PER_CELL 件
+  hidden: number; // events に含めきれなかった残り件数(>=0)
+};
+
+function barClass(kind: MonthEvent["kind"]): string {
+  if (kind === "event") return "bg-sky-500/90 text-white";
+  if (kind === "required") return "bg-rose-500/90 text-white";
+  return "bg-slate-400/80 text-white dark:bg-slate-500/80";
+}
 
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 
@@ -26,15 +59,19 @@ export function MonthCalendar({
   selectedYmd,
   todayYmd,
   indicators,
+  events,
   onSelect,
   className = "",
 }: {
   selectedYmd: string;
   todayYmd: string;
   indicators?: Record<string, DayIndicators>;
+  // 渡されたとき、ドット集約をやめてバー表示(Google カレンダー風)に切り替える。
+  events?: Record<string, MonthEventDay>;
   onSelect: (ymd: string) => void;
   className?: string;
 }) {
+  const useBars = !!events;
   const initialMonth = useMemo(() => {
     // selectedYmd は JST 文脈の "YYYY-MM-DD"。Date 経由で +09:00 を介すと
     // 非 JST クライアントで月がずれるため、文字列から直接 y/m を抽出する。
@@ -42,6 +79,19 @@ export function MonthCalendar({
     return new Date(y, m - 1, 1);
   }, [selectedYmd]);
   const [cursor, setCursor] = useState<Date>(initialMonth);
+
+  // selectedYmd が外部要因 (例: /calendar の深夜跨ぎ refresh で todayYmd が
+  // 翌月に切り替わる) で月を跨いだとき、cursor が以前の月のまま固まらない
+  // ようにする。同月内の selectedYmd 変化では cursor を動かさない
+  // (= ユーザーが手動で月送りした状態を壊さない)。
+  useEffect(() => {
+    setCursor((prev) => {
+      const sameMonth =
+        prev.getFullYear() === initialMonth.getFullYear() &&
+        prev.getMonth() === initialMonth.getMonth();
+      return sameMonth ? prev : initialMonth;
+    });
+  }, [initialMonth]);
 
   const monthCells = useMemo(() => {
     const start = startOfWeek(startOfMonth(cursor), { weekStartsOn: 0 });
@@ -95,12 +145,33 @@ export function MonthCalendar({
           const isToday = ymd === todayYmd;
           const isSelected = ymd === selectedYmd;
           const ind = indicators?.[ymd];
+          // events はサーバー側で MAX_BARS_PER_CELL 件まで切り詰めて返される。
+          // hidden に残り件数が入る (+N 件 用)。null fallback で旧呼び出しに
+          // 後方互換: indicators だけのケース (CalendarSheet) は変わらず動く。
+          const cellEntry = events?.[ymd];
+          const visibleBars = cellEntry?.events ?? [];
+          const overflow = cellEntry?.hidden ?? 0;
+          // useBars はモード(レイアウト・凡例)制御。
+          // 個別セルで描画するものは「バーが1件以上あればバー、無ければ
+          // indicators カウントからドット」にフォールバックする。
+          // events が空 {} で返ったとき(新規ユーザ等)や、Promise.all で
+          // indicators と events のクエリ間に race が起きて events だけ
+          // 拾い損ねたケースでも、indicators 側にカウントが残っていれば
+          // 「予定があるはずなのに何も出ない」セルを避けられる。
+          const hasBars = visibleBars.length > 0;
+          const hasDots = !!(ind && (ind.events || ind.required || ind.optional));
           const dow = d.getDay();
           return (
             <button
               key={ymd}
               onClick={() => onSelect(ymd)}
-              className={`relative min-h-[3.25rem] bg-white dark:bg-slate-950 px-1 py-1 text-left transition ${
+              className={`relative px-1 pt-1 text-left transition ${
+                useBars ? "pb-1 min-h-[5rem]" : "pb-3 min-h-[3.25rem]"
+              } ${
+                ind?.isClassDay
+                  ? "bg-sky-100 dark:bg-sky-500/15"
+                  : "bg-white dark:bg-slate-950"
+              } ${
                 isSelected
                   ? "ring-2 ring-sky-500 ring-inset"
                   : isToday
@@ -109,7 +180,7 @@ export function MonthCalendar({
               } ${inMonth ? "" : "opacity-40"}`}
             >
               <div
-                className={`text-xs font-medium ${
+                className={`text-xs font-medium leading-none ${
                   isSelected
                     ? "text-sky-300"
                     : isToday
@@ -123,26 +194,35 @@ export function MonthCalendar({
               >
                 {format(d, "d")}
               </div>
-              {ind && (
-                <div className="mt-1 flex gap-0.5">
-                  {ind.events ? <span className="h-1.5 w-1.5 rounded-full bg-sky-400" /> : null}
-                  {ind.required ? (
-                    <span className="h-1.5 w-1.5 rounded-full bg-slate-200" />
-                  ) : null}
-                  {ind.optional ? (
-                    <span className="h-1.5 w-1.5 rounded-full bg-slate-500" />
-                  ) : null}
-                </div>
-              )}
+
+              {hasBars ? (
+                <CellBars visibleBars={visibleBars} overflow={overflow} />
+              ) : hasDots && ind ? (
+                <CellDots ind={ind} />
+              ) : null}
             </button>
           );
         })}
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600 dark:text-slate-400">
-        <Legend color="bg-sky-400" label="予定" />
-        <Legend color="bg-slate-200" label="必須" />
-        <Legend color="bg-slate-500" label="任意" />
+        <span className="inline-flex items-center gap-1">
+          <span className="inline-block h-3 w-3 rounded-sm bg-sky-100 dark:bg-sky-500/15" />
+          授業日
+        </span>
+        {useBars ? (
+          <>
+            <BarLegend color="bg-sky-500/90" label="予定" />
+            <BarLegend color="bg-rose-500/90" label="必須" />
+            <BarLegend color="bg-slate-400/80 dark:bg-slate-500/80" label="任意" />
+          </>
+        ) : (
+          <>
+            <Legend color="bg-sky-400" label="予定" />
+            <Legend color="bg-slate-200" label="必須" />
+            <Legend color="bg-slate-500" label="任意" />
+          </>
+        )}
       </div>
     </div>
   );
@@ -154,5 +234,68 @@ function Legend({ color, label }: { color: string; label: string }) {
       <span className={`h-1.5 w-1.5 rounded-full ${color}`} />
       {label}
     </span>
+  );
+}
+
+function BarLegend({ color, label }: { color: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className={`inline-block h-2 w-3 rounded-sm ${color}`} />
+      {label}
+    </span>
+  );
+}
+
+// 1 セルに最大 3 件、超過は「+N 件」で集約するバー描画。
+// セル下部に flex column で並べる(セル上部は日付数字が固定)。
+function CellBars({
+  visibleBars,
+  overflow,
+}: {
+  visibleBars: MonthEvent[];
+  overflow: number;
+}) {
+  return (
+    <div className="mt-1 flex flex-col gap-0.5">
+      {visibleBars.map((ev) => {
+        // color (hex) があれば kind クラスより優先して背景色を上書き。
+        // Google カレンダー由来の予定はカレンダー固有色を帯びる。
+        // text-white は暗色が多い前提で固定 (色を白文字で乗せても十分視認できる
+        // 範囲が広い)。極端に明るい色だと白文字が薄くなるが、Google デフォルト
+        // パレットでは大きな問題は出ない。
+        const inlineStyle = ev.color ? { background: ev.color } : undefined;
+        const className = ev.color
+          ? "truncate rounded-sm px-1 py-px text-[10px] leading-tight text-white"
+          : `truncate rounded-sm px-1 py-px text-[10px] leading-tight ${barClass(ev.kind)}`;
+        return (
+          <div
+            key={ev.id}
+            className={className}
+            style={inlineStyle}
+            title={ev.title}
+          >
+            {ev.title}
+          </div>
+        );
+      })}
+      {overflow > 0 ? (
+        <div className="px-1 text-[10px] leading-tight text-slate-600 dark:text-slate-400">
+          +{overflow} 件
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// バーが描画されない経路 (CalendarSheet・useBars=true でその日に
+// イベントが無いケース) のドット集約フォールバック。
+// セル下部に絶対配置して、日付数字の位置を固定する。
+function CellDots({ ind }: { ind: DayIndicators }) {
+  return (
+    <div className="absolute bottom-1 left-1 flex gap-0.5">
+      {ind.events ? <span className="h-1.5 w-1.5 rounded-full bg-sky-400" /> : null}
+      {ind.required ? <span className="h-1.5 w-1.5 rounded-full bg-slate-200" /> : null}
+      {ind.optional ? <span className="h-1.5 w-1.5 rounded-full bg-slate-500" /> : null}
+    </div>
   );
 }

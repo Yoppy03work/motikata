@@ -2,7 +2,7 @@ export type TodayItem = {
   id: number;
   itemType: "TASK" | "EVENT";
   required: boolean;
-  source: "MANUAL" | "RECURRING" | "CLASS" | "ACADEMIC";
+  source: "MANUAL" | "RECURRING" | "CLASS" | "ACADEMIC" | "GOOGLE";
   title: string;
   subtitle?: string;
   dueAt: string;

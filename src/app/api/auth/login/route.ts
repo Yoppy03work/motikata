@@ -11,6 +11,7 @@ import {
   recordSuccess,
 } from "@/lib/rateLimit";
 import { issueAnonId, verifyAnonId } from "@/lib/anonId";
+import { resolveCookieSecure } from "@/lib/cookieSecure";
 
 // Cookie の状態を返す。
 // - verifiedExisting: HMAC 署名が正しく検証された ID のみ。これだけが rate-limit の key に使える
@@ -33,7 +34,7 @@ async function readAnonCookieState(): Promise<{
 function attachAnonCookie(res: NextResponse, signedAnonId: string): NextResponse {
   res.cookies.set(ANON_COOKIE_NAME, signedAnonId, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: resolveCookieSecure(),
     sameSite: "lax",
     path: "/",
     maxAge: ANON_COOKIE_MAX_AGE,

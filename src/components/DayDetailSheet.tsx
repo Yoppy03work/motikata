@@ -78,15 +78,20 @@ export function DayDetailSheet({
   const dateObj = new Date(yy, mm - 1, dd);
   const title = format(dateObj, "M月d日 (EEE)", { locale: ja });
 
-  const events = items
+  // 「予定/必須/任意」セクションは未完了(OPEN)のみ。
+  // 完了/スキップ済みは別バケツに集約する(月インジケータの集計と挙動を揃える)。
+  const openItems = items.filter((i) => i.status === "OPEN");
+  const doneItems = items.filter((i) => i.status !== "OPEN");
+  const events = openItems
     .filter((i) => i.itemType === "EVENT")
     .sort((a, b) => a.dueAt.localeCompare(b.dueAt));
-  const required = items
+  const required = openItems
     .filter((i) => i.itemType === "TASK" && i.required)
     .sort((a, b) => a.dueAt.localeCompare(b.dueAt));
-  const optional = items
+  const optional = openItems
     .filter((i) => i.itemType === "TASK" && !i.required)
     .sort((a, b) => a.dueAt.localeCompare(b.dueAt));
+  const completed = doneItems.sort((a, b) => a.dueAt.localeCompare(b.dueAt));
 
   return (
     <div
@@ -120,9 +125,27 @@ export function DayDetailSheet({
                 </p>
               ) : (
                 <div className="space-y-4">
-                  {events.length > 0 && <Group label="📅 予定" items={events} />}
-                  {required.length > 0 && <Group label="✅ 必須タスク" items={required} />}
-                  {optional.length > 0 && <Group label="◎ 任意タスク" items={optional} muted />}
+                  {events.length > 0 && <Group label="予定" items={events} />}
+                  {required.length > 0 && <Group label="必須タスク" items={required} />}
+                  {optional.length > 0 && <Group label="任意タスク" items={optional} muted />}
+                  {events.length === 0 &&
+                    required.length === 0 &&
+                    optional.length === 0 &&
+                    completed.length > 0 && (
+                      <p className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100/50 dark:bg-slate-900/50 p-3 text-xs text-slate-600 dark:text-slate-400">
+                        この日の未完了はありません
+                      </p>
+                    )}
+                  {completed.length > 0 && (
+                    <details className="mt-2">
+                      <summary className="cursor-pointer text-xs text-slate-600 dark:text-slate-400">
+                        完了済み {completed.length} 件
+                      </summary>
+                      <ul className="mt-2">
+                        <Group label="" items={completed} muted strike />
+                      </ul>
+                    </details>
+                  )}
                 </div>
               )}
             </div>
@@ -166,14 +189,20 @@ function Group({
   label,
   items,
   muted = false,
+  strike = false,
 }: {
   label: string;
   items: Instance[];
   muted?: boolean;
+  strike?: boolean;
 }) {
   return (
     <div className={muted ? "opacity-80" : ""}>
-      <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-600 dark:text-slate-400">{label}</h3>
+      {label && (
+        <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-600 dark:text-slate-400">
+          {label}
+        </h3>
+      )}
       <ul className="space-y-1.5">
         {items.map((it) => (
           <li
@@ -184,7 +213,9 @@ function Group({
               <span className="text-xs text-slate-600 dark:text-slate-400">
                 {formatInTimeZone(new Date(it.dueAt), APP_TZ, "HH:mm")}
               </span>
-              <span className="truncate text-sm">{it.title}</span>
+              <span className={`truncate text-sm ${strike ? "line-through" : ""}`}>
+                {it.title}
+              </span>
               {it.itemType === "TASK" && !it.required && (
                 <span className="ml-auto rounded bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-600 dark:text-slate-400">
                   任意

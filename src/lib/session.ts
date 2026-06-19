@@ -1,4 +1,5 @@
 import type { SessionOptions } from "iron-session";
+import { resolveCookieSecure } from "./cookieSecure";
 
 export interface SessionData {
   authed?: boolean;
@@ -7,6 +8,7 @@ export interface SessionData {
 
 const isProd = process.env.NODE_ENV === "production";
 const envSecret = process.env.SESSION_SECRET;
+const cookieSecure = resolveCookieSecure();
 
 if (isProd && (!envSecret || envSecret.length < 32)) {
   throw new Error(
@@ -25,7 +27,7 @@ export const sessionOptions: SessionOptions = {
   password,
   cookieOptions: {
     httpOnly: true,
-    secure: isProd,
+    secure: cookieSecure,
     sameSite: "lax",
     path: "/",
     maxAge: 60 * 60 * 24 * 7, // 7日(アイドル)— 重要操作は別途PIN再認証

@@ -47,6 +47,7 @@ enum TaskSource {
   RECURRING
   CLASS
   ACADEMIC
+  GOOGLE
 }
 
 enum ReminderChannel {
@@ -113,20 +114,32 @@ model TemplateTag {
 model ClassSchedule {
   id            Int            @id @default(autoincrement())
   dayOfWeek     Int
+  // CIT は 9:00 から 1 時間刻みの 10 限制。複数限連続(2-4限)が基本のため
+  // 開始限 (period) と 終了限 (endPeriod) のレンジで表現する。
   period        Int
+  endPeriod     Int            @default(1)
   startTime     String
   endTime       String
   courseName    String
   classroom     String?
   teacher       String?
+  // ユーザが指定したカード色 (例 "#0ea5e9")。null の場合は科目名ハッシュで自動配色。
+  color         String?
   effectiveFrom DateTime?
   effectiveTo   DateTime?
+  // この行がどこから入ってきたか。
+  //   null         : 手動追加 (UI / API 直叩き)
+  //   "cit-portal" : CITポータル同期で自動取り込み
+  // CIT同期の全置換ロジックは "cit-portal" 由来行だけを削除対象にし、
+  // 手動授業を守るために必須。
+  importedFrom  String?
   tags          ClassTag[]
   templates     TaskTemplate[]
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
   @@index([dayOfWeek, period])
+  @@index([importedFrom])
 }
 
 model ClassTag {
@@ -163,6 +176,23 @@ model TaskInstance {
   completedAt      DateTime?
   source           TaskSource
   sourceExternalId String?
+  // Google カレンダー由来の予定が、どの GoogleCalendar から取得されたか。
+  // Phase 2 で導入。Google 以外の source では常に null。
+  // カレンダー削除時 (GoogleCalendar.onDelete=Cascade) で taskInstance も
+  // 連動して消える運用にしているため、cascade を張る。
+  googleCalendarId Int?
+  googleCalendar   GoogleCalendar? @relation(fields: [googleCalendarId], references: [id], onDelete: Cascade)
+  // 表示用の HEX 色 (Google color → resolved hex)。バー描画時に MonthCalendar
+  // 側でそのまま style={{ background }} に流し込む。手入力タスクは null。
+  color            String?
+  // Phase 6 (衝突解決): Google から最後に受け取った etag。
+  // events.patch 時に If-Match で送り、412 (precondition failed) を受けたら
+  // Google 側で別更新が入った合図なのでユーザーに通知して上書きを防ぐ。
+  // events.list の各 item でも etag が返るので、その都度更新する。
+  googleEtag        String?
+  // Phase 6: Google "updated" timestamp。実装上は loop 検出と「自分が書いた
+  // のと同じ updated なら no-op」判定に使う。
+  googleUpdatedAt   DateTime?
   tags             TaskInstanceTag[]
   checklist        TaskInstanceCheck[]
   reminders        Reminder[]
@@ -170,6 +200,10 @@ model TaskInstance {
   updatedAt        DateTime            @updatedAt
 
   @@unique([templateId, dueAt], name: "unique_template_due")
+  // 外部ソース(manaba/CIT等)からの取込で重複行を作らないための一意制約。
+  // (source, sourceExternalId) ペアでユニーク。MANUAL タスクは
+  // sourceExternalId が NULL なので Postgres の NULL=distinct 規約で複数OK。
+  @@unique([source, sourceExternalId], name: "unique_source_external")
   @@index([status, dueAt])
 }
 
@@ -207,6 +241,12 @@ model Reminder {
   ackedAt         DateTime?
   dedupeKey       String          @unique
   attempts        Int             @default(0)
+  // dispatcher 排他用の claim タイムスタンプ。NULL = 誰も保持していない。
+  // 配信処理の途中でクラッシュした場合は古い claimedAt がそのまま残るが、
+  // pickup クエリで stale (= 5分以上前) を許容するので自動回復する。
+  // attempts とは分離: claim だけでは attempts を増やさず、実際の送信
+  // 試行(成功/失敗)時にのみ加算するため、再起動でリトライ枠を消費しない。
+  claimedAt       DateTime?
   lastError       String?
   createdAt       DateTime        @default(now())
 
@@ -223,6 +263,138 @@ model AcademicEvent {
   createdAt    DateTime     @default(now())
 
   @@index([date])
+}
+
+// 「この日は授業がある」を年単位で永続化するテーブル。
+// 千葉工大の学年歴 PDF 取り込み時に、学期境界 + 休講 + 祝日授業日 から
+// 計算してまとめて bulk insert する。
+// date は JST 0:00 を表す UTC instant(他テーブルの慣習に合わせる)。
+model ClassDay {
+  date      DateTime @id
+  createdAt DateTime @default(now())
+}
+
+// manaba 連携用の暗号化保存資格情報(単一ユーザー前提なので 1 行のみ)。
+// passwordEnc は AES-256-GCM。鍵は SESSION_SECRET 派生で暗号化(crypto.ts)。
+// lastError には直近の同期時のエラー(あれば)、lastSyncedAt は最終成功時刻。
+// singletonKey は固定値 "default" を入れて DB レベルで 1 行制約を効かせる
+// (並行書き込みでの重複行を防ぐ; upsert で使う)。
+model ManabaCredential {
+  id            Int       @id @default(autoincrement())
+  singletonKey  String    @unique @default("default")
+  username      String
+  passwordEnc   String
+  lastSyncedAt  DateTime?
+  lastError     String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+// CITポータル(Universal Passport RX)連携用の暗号化保存資格情報。
+// SSO + MFA(TOTP)経由でログインするため、TOTPシークレットも保存する。
+// 注意: passwordEnc と totpSecretEnc が同一鍵(SESSION_SECRET派生)で
+// 暗号化されているため、DB+鍵が同時に漏洩した場合 MFA 保護は実質失われる。
+// 単一ユーザー前提のため 1 行のみ。singletonKey で DB 一意性も保証する
+// (並行 save での重複挿入を防ぐ)。
+model CitPortalCredential {
+  id             Int       @id @default(autoincrement())
+  singletonKey   String    @unique @default("default")
+  username       String
+  passwordEnc    String
+  totpSecretEnc  String
+  // Keycloakのクレデンシャル選択画面で選ぶデバイス名(部分一致でマッチ)。
+  // 例: "PC(motica)" などポータルでTOTP登録時に付けた名前。
+  // 未設定だと最初のクレデンシャルが選ばれる。
+  totpDeviceName String?
+  lastSyncedAt   DateTime?
+  lastError      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+// Google カレンダー連携用の OAuth 2.0 認証情報(単一ユーザー前提なので 1 行のみ)。
+// refreshTokenEnc は AES-256-GCM。鍵は CREDENTIAL_ENCRYPTION_KEY 派生 (DOMAIN="google-calendar")。
+// accessToken は短寿命 (~1h) なので生で持つが、worker/web 間で共有するため DB に置く。
+// accessTokenExpiresAt が過去になったら refresh する。
+// scope は認可されたスコープ文字列 (検証用; ユーザーが Google 側で剥がしたら検知できる)。
+// email は表示用 + どの Google アカウントで連携したかの記録。
+// lastSyncAt / lastError は他 credential と同じ運用ログ。
+// singletonKey は固定値 "default" を入れて DB レベルで 1 行制約を効かせる。
+//
+// Phase 2 で syncToken を GoogleCredential から外し、GoogleCalendar 側に移管
+// (カレンダー毎に sync token を持つ)。
+model GoogleCredential {
+  id                    Int               @id @default(autoincrement())
+  singletonKey          String            @unique @default("default")
+  email                 String
+  refreshTokenEnc       String
+  accessToken           String?
+  accessTokenExpiresAt  DateTime?
+  scope                 String
+  lastSyncAt            DateTime?
+  lastError             String?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+  calendars             GoogleCalendar[]
+}
+
+// Phase 2 で導入する、ユーザーが連携した Google アカウントに紐付くカレンダー
+// 1 件分のメタ + 同期状態。
+// - externalId は Google calendar.list の id (primary / メアド / 任意の string)
+// - colorId は Google が割り当てる色ID。表示時に colorHex (resolveGoogleColor)
+//   で hex に解決して TaskInstance.color に焼き込む
+// - enabled が false なら同期 cron でスキップ
+// - syncToken は events.list の incremental cursor。 GoogleCredential から移管。
+// - 削除時は紐付く TaskInstance も cascade で消す (Phase 2 で連携解除を再連携
+//   無しで部分削除できるようにするため)
+model GoogleCalendar {
+  id              Int               @id @default(autoincrement())
+  credentialId    Int
+  credential      GoogleCredential  @relation(fields: [credentialId], references: [id], onDelete: Cascade)
+  externalId      String
+  summary         String
+  // primary フラグ (= ログインアカウントの主カレンダー)。 UI で常に上位に出す。
+  isPrimary       Boolean           @default(false)
+  // Google 上の色ID (calendarListEntry.colorId)。null なら Google のデフォルト色。
+  colorId         String?
+  // colorId から resolveGoogleColor で解決した hex。fast path 用にキャッシュ。
+  // null なら描画側で fallback (= 既存のソース別色) を使う。
+  colorHex        String?
+  enabled         Boolean           @default(true)
+  syncToken       String?
+  lastSyncAt      DateTime?
+  lastError       String?
+  taskInstances   TaskInstance[]
+  tombstones      GoogleTombstone[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  // 同じ credential に同じ externalId が二重登録されないよう一意制約。
+  @@unique([credentialId, externalId])
+}
+
+// Phase 6: モチカタで削除した GOOGLE 由来 TaskInstance の "墓標"。
+//
+// 用途:
+//   ローカルで DELETE → Google API で events.delete を試みる際、
+//   Google 側 API が落ちる/遅延すると、ローカル行は消えたが Google には
+//   残ったまま、というケースが発生する。次回 sync で events.list が
+//   その「Google には残っている」イベントを再度引いてきて、ローカルに
+//   新規行として作り直してしまう (delete propagation の取り戻し問題)。
+//
+//   tombstone があれば sync 側で「これは消したやつ」と認識して再生成を
+//   スキップする。expiresAt を過ぎたら掃除 (cleanup cron) — 30 日以上
+//   経っていれば Google 側でも本当に消えているはずなので不要。
+model GoogleTombstone {
+  id               Int             @id @default(autoincrement())
+  googleCalendarId Int
+  googleCalendar   GoogleCalendar  @relation(fields: [googleCalendarId], references: [id], onDelete: Cascade)
+  externalEventId  String
+  deletedAt        DateTime        @default(now())
+  expiresAt        DateTime
+
+  @@unique([googleCalendarId, externalEventId])
+  @@index([expiresAt])
 }
 
 model PushSubscription {

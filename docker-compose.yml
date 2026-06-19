@@ -35,7 +35,12 @@ services:
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
       - SESSION_SECRET=${SESSION_SECRET}
+      - CREDENTIAL_ENCRYPTION_KEY=${CREDENTIAL_ENCRYPTION_KEY:-}
       - INITIAL_PIN=${INITIAL_PIN}
+      - SESSION_COOKIE_SECURE=${SESSION_COOKIE_SECURE:-}
+      - GOOGLE_OAUTH_CLIENT_ID=${GOOGLE_OAUTH_CLIENT_ID:-}
+      - GOOGLE_OAUTH_CLIENT_SECRET=${GOOGLE_OAUTH_CLIENT_SECRET:-}
+      - GOOGLE_OAUTH_REDIRECT_BASE=${GOOGLE_OAUTH_REDIRECT_BASE:-http://localhost:3000}
       - JOBS_TOKEN=${JOBS_TOKEN}
       - PUSH_HIDE_PAYLOAD=${PUSH_HIDE_PAYLOAD:-true}
       - TRUST_PROXY=${TRUST_PROXY:-false}
@@ -45,6 +50,11 @@ services:
       - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY}
       - VAPID_SUBJECT=${VAPID_SUBJECT}
       - TZ=Asia/Tokyo
+      # manaba 取得先。CIT 以外の大学で本アプリを動かす場合に上書きする。
+      # 未設定なら src/lib/manabaScrape.ts の DEFAULT_BASE が使われる。
+      - MANABA_BASE_URL=${MANABA_BASE_URL:-}
+      # CITポータルスクレイパーのステップ別デバッグログ。問題切り分け時のみ有効化。
+      - CIT_PORTAL_DEBUG=${CIT_PORTAL_DEBUG:-0}
     ports:
       - "3000:3000"
 
