@@ -206,7 +206,13 @@ export async function pushTaskInstanceToGoogle(
       const ymdJst = formatJstYmd(patch.dueAt);
       // Phase 13: ローカル endAt を持っていればそれを exclusive end として
       // 使う (multi-day all-day の保持)。無ければ翌日 = single day。
-      const endDate = ti.endAt ?? new Date(patch.dueAt.getTime() + 24 * 60 * 60 * 1000);
+      // Phase 13.5: end <= start で Google 400 が出ないよう safety guard。
+      // PATCH route で delta shift が効いていれば通常はここに到達しないが、
+      // legacy 行や endAt 未保存の場合の保険として確保。
+      let endDate = ti.endAt ?? new Date(patch.dueAt.getTime() + 24 * 60 * 60 * 1000);
+      if (endDate.getTime() <= patch.dueAt.getTime()) {
+        endDate = new Date(patch.dueAt.getTime() + 24 * 60 * 60 * 1000);
+      }
       const nextDayJst = formatJstYmd(endDate);
       body.start = { date: ymdJst };
       body.end = { date: nextDayJst };
@@ -334,7 +340,12 @@ export async function createGoogleEvent(
   let body: Record<string, unknown>;
   if (payload.isAllDay) {
     const ymdJst = formatJstYmd(payload.dueAt);
-    const endDate = payload.endAt ?? new Date(payload.dueAt.getTime() + 24 * 60 * 60 * 1000);
+    // Phase 13.5: end<=start で 400 が出ないよう safety guard。caller が
+    // endAt を dueAt と同日にした (= 0 日間) ケース等に対する保険。
+    let endDate = payload.endAt ?? new Date(payload.dueAt.getTime() + 24 * 60 * 60 * 1000);
+    if (endDate.getTime() <= payload.dueAt.getTime()) {
+      endDate = new Date(payload.dueAt.getTime() + 24 * 60 * 60 * 1000);
+    }
     const nextDayJst = formatJstYmd(endDate);
     body = {
       ...baseBody,
