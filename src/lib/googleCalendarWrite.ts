@@ -17,6 +17,39 @@ import { ensureGoogleAccessToken } from "./googleAccessToken";
 
 const EVENTS_API_BASE = "https://www.googleapis.com/calendar/v3/calendars";
 
+// Phase 9: Google API 403 の reason を見て transient (rate / quota) か
+// 真の forbidden かを判定する。Google Calendar API のエラー応答は通常 JSON で
+// `{ error: { errors: [{ domain, reason }], code, message } }` の形。
+// 既知の transient reason を列挙。HTML body 等で JSON parse に失敗した場合は
+// safe default として「transient と仮定 → SHORT TTL」を選ぶ。間違えても 1 時間
+// 後に sync で取り込み直されるだけで、真の forbidden を見逃しても致命的では
+// ない (権限剥奪なら次回 sync で 403 が再発する)。
+const TRANSIENT_403_REASONS = new Set([
+  "rateLimitExceeded",
+  "userRateLimitExceeded",
+  "rateLimitExceededUnreg",
+  "userRateLimitExceededUnreg",
+  "quotaExceeded",
+  "dailyLimitExceeded",
+  "dailyLimitExceededUnreg",
+  "backendError",
+  "variableTermLimitExceeded",
+]);
+function isTransient403(body: string): boolean {
+  if (!body) return true; // 空 body は parse 不能 → safe default
+  try {
+    const parsed = JSON.parse(body) as {
+      error?: { errors?: { reason?: string }[] };
+    };
+    const reasons = parsed.error?.errors?.map((e) => e.reason) ?? [];
+    if (reasons.length === 0) return true; // reason 不明 → safe default
+    return reasons.some((r) => r && TRANSIENT_403_REASONS.has(r));
+  } catch {
+    // 非 JSON (HTML 403 等) → safe default
+    return true;
+  }
+}
+
 // Phase 7: Google API が返す RFC3339 timestamp を安全に Date 化する。
 // 仕様外の文字列 (空文字, "now" など) や極端値で Invalid Date になると
 // Prisma 経由で RangeError に化けるため、必ず null fallback する。
@@ -216,57 +249,67 @@ export async function createGoogleEvent(
   };
 }
 
-// Phase 7/8: POST /api/tasks の transaction が createGoogleEvent 成功後に失敗
+// Phase 7/8/9: POST /api/tasks の transaction が createGoogleEvent 成功後に失敗
 // した際の Google 側 orphan event を消すためのヘルパ。
 //
-// 動作:
-//   1. tombstone を SHORT TTL (1 時間) で先に upsert
-//      → Google API 失敗時でも 1 時間は sync が orphan を取り込まない
-//      → 期限内に retry / cleanup されるかユーザーが気付ける
-//   2. Google API を呼ぶ。成功なら LONG TTL に延長、失敗ならそのまま SHORT
+// 動作 (Phase 9 再設計):
+//   1. Google DELETE を best-effort で試行 (try/catch で完全に握り潰し)
+//   2. DELETE が成功 / 既に消えていた (404/410) 場合のみ tombstone を LONG で書く
+//   3. それ以外 (cal なし / token 失敗 / 5xx / network / 401/403 等):
+//      tombstone は書かない。次の sync で orphan が phantom task として
+//      取り込まれるが、ユーザーが手動で削除して回復可能。
 //
-// Phase 7 では tombstone を書かなかったため、rollback DELETE が失敗すると
-// 次の 5 分 sync で『失敗したはずのタスクが復活』する regression があった。
-// Best-effort のままだが、最低 SHORT TTL の防御線を張る。
+// Phase 8 では tombstone を先に書いていたが、(a) writeTombstone 自体が throw
+// すると元の transaction エラーを mask する (b) cal が消えていると FK 違反で
+// throw する (c) cal/token 失敗時に SHORT tombstone が 1 時間 valid な Google
+// event を見えなくする、という新規 regression があった。
+//
+// Phase 9 の trade-off: orphan が 1 度だけ phantom 取り込みされる可能性は残るが、
+// rollback ヘルパ自体が絶対に throw しない / 元エラーを mask しない / valid な
+// Google event を意図せず隠さない、という不変条件を優先する。
 export async function rollbackOrphanGoogleEvent(
   googleCalendarId: number,
   externalEventId: string,
 ): Promise<void> {
-  // 防御線: API 結果を待たずに tombstone を SHORT TTL で書く。
-  await writeTombstone(
-    googleCalendarId,
-    externalEventId,
-    GOOGLE_TOMBSTONE_TTL_SHORT_MS,
-  );
-
-  const cal = await prisma.googleCalendar.findUnique({
-    where: { id: googleCalendarId },
-    select: { externalId: true, credential: true },
-  });
-  if (!cal) return;
-  let accessToken: string;
+  // 関数全体を try/catch で包む。本関数は best-effort cleanup なので、
+  // どんな例外も呼び出し側 (POST /api/tasks の catch) の `throw e` (= 元の
+  // transaction エラー) を mask してはいけない。
   try {
-    accessToken = await ensureGoogleAccessToken(cal.credential);
-  } catch {
-    return; // 取得失敗 → SHORT TTL の tombstone は残る
-  }
-  const url = `${EVENTS_API_BASE}/${encodeURIComponent(cal.externalId)}/events/${encodeURIComponent(externalEventId)}`;
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${accessToken}` },
+    const cal = await prisma.googleCalendar.findUnique({
+      where: { id: googleCalendarId },
+      select: { externalId: true, credential: true },
     });
+    if (!cal) return;
+    let accessToken: string;
+    try {
+      accessToken = await ensureGoogleAccessToken(cal.credential);
+    } catch {
+      return; // 取得失敗 → 次の sync で orphan が phantom 取り込みされる
+    }
+    const url = `${EVENTS_API_BASE}/${encodeURIComponent(cal.externalId)}/events/${encodeURIComponent(externalEventId)}`;
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+    } catch {
+      return; // network 失敗 → 同上
+    }
+    if (res.status === 404 || res.status === 410 || res.ok) {
+      // Google 側で確実に消えた (or 既に消えていた) → tombstone で再取り込み防止
+      await writeTombstone(
+        googleCalendarId,
+        externalEventId,
+        GOOGLE_TOMBSTONE_TTL_LONG_MS,
+      );
+    }
+    // それ以外の失敗 (5xx / 401 / 403 / 412 等): tombstone を書かない。
+    // 「ローカルには無いが Google にだけ残っている」が一時的に発生するが、
+    // 次の sync で取り込まれて回復可能 (ユーザーが手動で削除)。
   } catch {
-    return; // network 失敗 → SHORT TTL の tombstone は残る
-  }
-  if (res.status === 404 || res.status === 410 || res.ok) {
-    // Google 側で確実に消えた (or 既に消えていた) → LONG TTL に延長
-    await writeTombstone(
-      googleCalendarId,
-      externalEventId,
-      GOOGLE_TOMBSTONE_TTL_LONG_MS,
-    );
+    // 関数全体は black hole で受ける (例: tombstone upsert で FK 違反等)。
+    return;
   }
 }
 
@@ -344,21 +387,23 @@ export async function deleteGoogleEventForTaskInstance(
     return { ok: true };
   }
   if (res.status === 401 || res.status === 403) {
-    // 403 は『rateLimitExceeded / userRateLimitExceeded』のような一時的な
-    // ものと、『forbidden』のような真の認可失敗が混ざる。
-    // Phase 8: response body の reason / domain を見て分岐。
-    //   - 401 / true forbidden: tombstone 書かない (= 再連携で取り込み直し)
-    //   - 403 で rateLimitExceeded 系: SHORT TTL で抑え次の cron で retry
+    // 403 は『rateLimitExceeded / userRateLimitExceeded / dailyLimitExceeded /
+    // quotaExceeded / *Unreg』のような transient と、『forbidden』のような
+    // 真の認可失敗が混ざる。
+    //   - 401: 必ず tombstone 書かない (credential 故障)
+    //   - 403 で transient reason 検出 or body JSON parse 不能: SHORT TTL
+    //     (safe default = transient と仮定。間違えても 1h 後に取り込み直し)
+    //   - 403 で明示的 forbidden reason: tombstone 書かない
     const detail = await res.text().catch(() => "");
-    const isRateLimited =
-      res.status === 403 &&
-      /rateLimitExceeded|userRateLimitExceeded|quotaExceeded/i.test(detail);
-    if (isRateLimited) {
-      await writeTombstone(
-        ti.googleCalendarId,
-        ti.sourceExternalId,
-        GOOGLE_TOMBSTONE_TTL_SHORT_MS,
-      );
+    if (res.status === 403) {
+      const isTransient = isTransient403(detail);
+      if (isTransient) {
+        await writeTombstone(
+          ti.googleCalendarId,
+          ti.sourceExternalId,
+          GOOGLE_TOMBSTONE_TTL_SHORT_MS,
+        );
+      }
     }
     return { ok: false, error: `events.delete ${res.status} ${detail.slice(0, 200)}` };
   }

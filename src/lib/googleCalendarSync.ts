@@ -232,11 +232,13 @@ async function syncOneCalendar(
               select: { id: true, status: true },
             });
             if (existing && existing.status !== "SKIPPED") {
-              await prisma.taskInstance.update({
+              // Phase 9: 並行 DELETE で行が消えていても 500 にしないため
+              // updateMany を使う (where 不一致は count=0 で no-op)。
+              const r = await prisma.taskInstance.updateMany({
                 where: { id: existing.id },
                 data: { status: "SKIPPED" },
               });
-              cancelled++;
+              if (r.count > 0) cancelled++;
             }
             // Google 側で cancelled になったので tombstone は不要 (上書き
             // 防止の意味がない)。あれば消す。
@@ -312,13 +314,25 @@ async function syncOneCalendar(
             },
           });
           if (existing) {
-            // Phase 8: SKIPPED→OPEN の復活 (Google で undelete) は明示的に
-            // status を倒す。それ以外 (OPEN/DONE) はローカル意図を尊重。
-            const reviveFromSkipped = existing.status === "SKIPPED";
-            // Phase 6/7: loop avoidance。etag 一致 = 「自分が直前に書いた
-            // echo」または「変化無し」。Phase 8: status clobber を消したので
-            // status === "OPEN" の追加条件は不要になり、純粋な etag 比較に戻す。
-            // 復活が必要なケース (reviveFromSkipped) は etag が一致しても抜けない。
+            // Phase 9: SKIPPED→OPEN の復活判定を厳格化。Phase 8 では
+            // existing.status === "SKIPPED" だけで全 guard をバイパスして
+            // 上書きしていたため、Google が unchanged な confirmed を再送した
+            // (full-sync fallback 等) だけで毎回 flip-flop が起きた。
+            // 「Google 側で実際に状態変化があった」を保証する条件として:
+            //   etag が変わっている OR ev.updated > existing.googleUpdatedAt
+            // のいずれかを必須にする。それでも etag/updatedAt が両方無い
+            // legacy 行で発火しないよう、両方とも比較不能なら revive 抑制。
+            const etagChanged = !!(ev.etag && existing.googleEtag !== ev.etag);
+            const updatedAdvanced = !!(
+              updatedAt &&
+              existing.googleUpdatedAt &&
+              updatedAt.getTime() > existing.googleUpdatedAt.getTime()
+            );
+            const reviveFromSkipped =
+              existing.status === "SKIPPED" && (etagChanged || updatedAdvanced);
+
+            // Phase 6/7/8/9: loop avoidance。etag 一致 = 「変化無し」。
+            // 復活ケース (reviveFromSkipped) は抜けない (= 確実に書き戻す)。
             if (
               ev.etag &&
               existing.googleEtag === ev.etag &&
@@ -326,10 +340,7 @@ async function syncOneCalendar(
             ) {
               continue;
             }
-            // Phase 7 (Reviewer の loop-race 防止): Google updated が古いものを
-            // 上書きしない。等値ケースは「Google 側に変化なし」(echo) なので
-            // 同様に skip にする (#6 等値漏れ対策)。
-            // ただし復活ケースだけは status を倒すので skip しない。
+            // Google updated が古い or 等値 (= 変化無し echo) を skip。
             if (
               existing.googleUpdatedAt &&
               updatedAt &&
@@ -340,13 +351,14 @@ async function syncOneCalendar(
             }
             // Phase 8: 並行 DELETE で行が消えていても 500 にしないため
             // updateMany を使う (where 不一致は count=0 で no-op)。
-            await prisma.taskInstance.updateMany({
+            // Phase 9: count 0 のとき updated++ を加算しない (metric 正確化)。
+            const r = await prisma.taskInstance.updateMany({
               where: { id: existing.id },
               data: reviveFromSkipped
                 ? { ...updateData, status: "OPEN", completedAt: null }
                 : updateData,
             });
-            updated++;
+            if (r.count > 0) updated++;
           } else {
             // Phase 7: pagination 中に書き加えられた tombstone を再度確認
             // (snapshot の snapshot 問題)。
