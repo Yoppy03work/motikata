@@ -216,14 +216,29 @@ export async function createGoogleEvent(
   };
 }
 
-// Phase 7: POST /api/tasks の transaction が createGoogleEvent 成功後に失敗
-// した際の Google 側 orphan event を best-effort で消すためのヘルパ。
-// TaskInstance を経由しない直接削除なので、tombstone は書かない (記録すべき
-// ローカル意図が無い)。失敗しても呼び出し側は本来のエラーを返す。
+// Phase 7/8: POST /api/tasks の transaction が createGoogleEvent 成功後に失敗
+// した際の Google 側 orphan event を消すためのヘルパ。
+//
+// 動作:
+//   1. tombstone を SHORT TTL (1 時間) で先に upsert
+//      → Google API 失敗時でも 1 時間は sync が orphan を取り込まない
+//      → 期限内に retry / cleanup されるかユーザーが気付ける
+//   2. Google API を呼ぶ。成功なら LONG TTL に延長、失敗ならそのまま SHORT
+//
+// Phase 7 では tombstone を書かなかったため、rollback DELETE が失敗すると
+// 次の 5 分 sync で『失敗したはずのタスクが復活』する regression があった。
+// Best-effort のままだが、最低 SHORT TTL の防御線を張る。
 export async function rollbackOrphanGoogleEvent(
   googleCalendarId: number,
   externalEventId: string,
 ): Promise<void> {
+  // 防御線: API 結果を待たずに tombstone を SHORT TTL で書く。
+  await writeTombstone(
+    googleCalendarId,
+    externalEventId,
+    GOOGLE_TOMBSTONE_TTL_SHORT_MS,
+  );
+
   const cal = await prisma.googleCalendar.findUnique({
     where: { id: googleCalendarId },
     select: { externalId: true, credential: true },
@@ -233,13 +248,26 @@ export async function rollbackOrphanGoogleEvent(
   try {
     accessToken = await ensureGoogleAccessToken(cal.credential);
   } catch {
-    return; // ベストエフォート: 取得失敗時は諦める
+    return; // 取得失敗 → SHORT TTL の tombstone は残る
   }
   const url = `${EVENTS_API_BASE}/${encodeURIComponent(cal.externalId)}/events/${encodeURIComponent(externalEventId)}`;
-  await fetch(url, {
-    method: "DELETE",
-    headers: { Authorization: `Bearer ${accessToken}` },
-  }).catch(() => {});
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+  } catch {
+    return; // network 失敗 → SHORT TTL の tombstone は残る
+  }
+  if (res.status === 404 || res.status === 410 || res.ok) {
+    // Google 側で確実に消えた (or 既に消えていた) → LONG TTL に延長
+    await writeTombstone(
+      googleCalendarId,
+      externalEventId,
+      GOOGLE_TOMBSTONE_TTL_LONG_MS,
+    );
+  }
 }
 
 // tombstone TTL のバリエーション。Google API の結果次第で寿命を変える:
@@ -316,9 +344,22 @@ export async function deleteGoogleEventForTaskInstance(
     return { ok: true };
   }
   if (res.status === 401 || res.status === 403) {
-    // 認可エラー。 credential が腐っているので tombstone は書かず、再連携時の
-    // 再取り込みに任せる。
+    // 403 は『rateLimitExceeded / userRateLimitExceeded』のような一時的な
+    // ものと、『forbidden』のような真の認可失敗が混ざる。
+    // Phase 8: response body の reason / domain を見て分岐。
+    //   - 401 / true forbidden: tombstone 書かない (= 再連携で取り込み直し)
+    //   - 403 で rateLimitExceeded 系: SHORT TTL で抑え次の cron で retry
     const detail = await res.text().catch(() => "");
+    const isRateLimited =
+      res.status === 403 &&
+      /rateLimitExceeded|userRateLimitExceeded|quotaExceeded/i.test(detail);
+    if (isRateLimited) {
+      await writeTombstone(
+        ti.googleCalendarId,
+        ti.sourceExternalId,
+        GOOGLE_TOMBSTONE_TTL_SHORT_MS,
+      );
+    }
     return { ok: false, error: `events.delete ${res.status} ${detail.slice(0, 200)}` };
   }
   if (!res.ok) {
