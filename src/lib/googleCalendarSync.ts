@@ -18,21 +18,19 @@
 // を 1 回の関数呼び出しでシリアル処理する (並列化は今回は採らない)。
 
 import { prisma } from "./db";
-import { decryptGoogleRefreshToken } from "./googleCrypto";
+import { ensureGoogleAccessToken } from "./googleAccessToken";
 import {
   listCalendarList,
-  refreshAccessToken,
   type GoogleCalendarListEntry,
 } from "./googleOAuth";
 import {
   resolveGoogleCalendarColor,
   resolveGoogleEventColor,
 } from "./googleColors";
-import type { GoogleCalendar, GoogleCredential } from "@prisma/client";
+import type { GoogleCalendar } from "@prisma/client";
 
 const EVENTS_API_BASE = "https://www.googleapis.com/calendar/v3/calendars";
 const FULL_SYNC_LOOKBACK_DAYS = 30;
-const ACCESS_TOKEN_REFRESH_SKEW_SEC = 30;
 
 export type GoogleSyncResult = {
   ok: boolean;
@@ -62,28 +60,6 @@ type EventsListResponse = {
   nextPageToken?: string;
   nextSyncToken?: string;
 };
-
-async function ensureAccessToken(cred: GoogleCredential): Promise<string> {
-  const now = Date.now();
-  if (
-    cred.accessToken &&
-    cred.accessTokenExpiresAt &&
-    cred.accessTokenExpiresAt.getTime() - now > ACCESS_TOKEN_REFRESH_SKEW_SEC * 1000
-  ) {
-    return cred.accessToken;
-  }
-  const refreshToken = decryptGoogleRefreshToken(cred.refreshTokenEnc);
-  const tokens = await refreshAccessToken(refreshToken);
-  const newExpires = new Date(Date.now() + tokens.expires_in * 1000);
-  await prisma.googleCredential.update({
-    where: { id: cred.id },
-    data: {
-      accessToken: tokens.access_token,
-      accessTokenExpiresAt: newExpires,
-    },
-  });
-  return tokens.access_token;
-}
 
 // Google calendarList を取得して GoogleCalendar に upsert。
 // enabled フラグはユーザー操作で変えるため、新規行のみ true で初期化し、
@@ -322,7 +298,7 @@ export async function syncGoogleCalendar(): Promise<GoogleSyncResult> {
 
   let accessToken: string;
   try {
-    accessToken = await ensureAccessToken(cred);
+    accessToken = await ensureGoogleAccessToken(cred);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "unknown";
     await prisma.googleCredential.update({

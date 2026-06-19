@@ -8,6 +8,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { requireAuthApi } from "@/lib/authGuard";
 import { ItemType, TaskPriority } from "@/lib/validation/enums";
+import { pushTaskInstanceToGoogle } from "@/lib/googleCalendarWrite";
 
 export const dynamic = "force-dynamic";
 
@@ -52,7 +53,24 @@ export async function PATCH(
       where: { id },
       data,
     });
-    return NextResponse.json({ ok: true, item: updated });
+    // Phase 3: GOOGLE 由来のタスクは Google 側 events.patch にも反映する。
+    // 失敗しても local 更新は維持し、レスポンスに googlePushError を入れて
+    // UI 側に通知する。再 sync で乖離は検出/補正される (next pull で
+    // sourceExternalId マッチで Google 値が local に戻る)。
+    let googlePushError: string | undefined;
+    if (updated.source === "GOOGLE") {
+      const r = await pushTaskInstanceToGoogle(updated.id, {
+        title: parsed.data.title,
+        notes: parsed.data.notes ?? undefined,
+        dueAt: parsed.data.dueAt ? new Date(parsed.data.dueAt) : undefined,
+      });
+      if (!r.ok) googlePushError = r.error;
+    }
+    return NextResponse.json({
+      ok: true,
+      item: updated,
+      ...(googlePushError ? { googlePushError } : {}),
+    });
   } catch (e) {
     if (
       e instanceof Prisma.PrismaClientKnownRequestError &&
