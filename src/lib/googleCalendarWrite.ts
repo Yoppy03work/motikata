@@ -23,12 +23,38 @@ function formatJstYmd(d: Date): string {
   return formatInTimeZone(d, "Asia/Tokyo", "yyyy-MM-dd");
 }
 
-// Phase 11: Google API の生 error body をユーザーに返さず、status コードと
+// Phase 11/12: Google API の生 error body をユーザーに返さず、status コードと
 // 大分類だけ返すヘルパ。raw body は呼び出し側で console.error にログ。
-// 401/403 は再認証導線、5xx は一時的失敗、429 はレート、それ以外は汎用。
-function googleErrorMessage(op: string, status: number): string {
-  if (status === 401 || status === 403) {
+//
+// Phase 12: 403 は rate/quota (transient) と真の forbidden が混ざるため、
+// 呼び出し側で isTransient403 判定済みなら kind="transient" を渡し、不要な
+// 「再連携してください」誘導を避ける。tombstone SHORT で自動 retry される
+// ことを案内する。
+// Phase 12: PII redaction for server-side logs。
+// primary calendar の externalId = ユーザーの email address。Google API の
+// 404/403/error body はリソースパスや calendarId を echo するため、生 body を
+// console.error に流すと email が log aggregator に流れる懸念がある。
+// メアド/長い token をマスクしてから log に書く。
+function redactSensitive(s: string): string {
+  return s
+    .replace(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, "[redacted-email]")
+    .replace(/[A-Za-z0-9_-]{40,}/g, "[redacted-token]");
+}
+
+type GoogleErrorKind = "auth" | "transient";
+function googleErrorMessage(
+  op: string,
+  status: number,
+  kind?: GoogleErrorKind,
+): string {
+  if (status === 401) {
     return `Google 認証エラー (${op} ${status})。設定から再連携してください`;
+  }
+  if (status === 403) {
+    if (kind === "transient") {
+      return `Google API のレート/クォータ上限です (${op})。バックグラウンドで自動再試行されます`;
+    }
+    return `Google 権限エラー (${op} ${status})。カレンダーの共有設定または再連携をご確認ください`;
   }
   if (status === 429) {
     return `Google API のレート制限に達しました (${op})。しばらくしてから再試行してください`;
@@ -217,9 +243,10 @@ export async function pushTaskInstanceToGoogle(
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
     // Phase 11: raw Google API error body をユーザーに返さない。
-    // サーバーログには full detail を残し、client には status のみ返す。
+    // サーバーログには truncated + PII redacted の detail を残し、
+    // client には status のみ返す。
     console.error(
-      `[google] events.patch ${res.status} for task ${ti.id}: ${detail.slice(0, 500)}`,
+      `[google] events.patch ${res.status} for task ${ti.id}: ${redactSensitive(detail).slice(0, 200)}`,
     );
     return { ok: false, error: googleErrorMessage("events.patch", res.status) };
   }
@@ -301,7 +328,7 @@ export async function createGoogleEvent(
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
     console.error(
-      `[google] events.insert ${res.status} for calendar ${googleCalendarId}: ${detail.slice(0, 500)}`,
+      `[google] events.insert ${res.status} for calendar ${googleCalendarId}: ${redactSensitive(detail).slice(0, 200)}`,
     );
     return {
       ok: false,
@@ -476,6 +503,7 @@ export async function deleteGoogleEventForTaskInstance(
     //     (safe default = transient と仮定。間違えても 1h 後に取り込み直し)
     //   - 403 で明示的 forbidden reason: tombstone 書かない
     const detail = await res.text().catch(() => "");
+    let kind: "auth" | "transient" | undefined;
     if (res.status === 403) {
       const isTransient = isTransient403(detail);
       if (isTransient) {
@@ -484,19 +512,23 @@ export async function deleteGoogleEventForTaskInstance(
           ti.sourceExternalId,
           GOOGLE_TOMBSTONE_TTL_SHORT_MS,
         );
+        kind = "transient";
       }
     }
     console.error(
-      `[google] events.delete ${res.status} for task ${taskInstanceId}: ${detail.slice(0, 500)}`,
+      `[google] events.delete ${res.status} for task ${taskInstanceId}: ${redactSensitive(detail).slice(0, 200)}`,
     );
-    return { ok: false, error: googleErrorMessage("events.delete", res.status) };
+    return {
+      ok: false,
+      error: googleErrorMessage("events.delete", res.status, kind),
+    };
   }
   if (!res.ok) {
     // 5xx / rate limit / その他失敗。SHORT TTL で次回 cron に賭ける。
     await writeTombstone(ti.googleCalendarId, ti.sourceExternalId, GOOGLE_TOMBSTONE_TTL_SHORT_MS);
     const detail = await res.text().catch(() => "");
     console.error(
-      `[google] events.delete ${res.status} for task ${taskInstanceId}: ${detail.slice(0, 500)}`,
+      `[google] events.delete ${res.status} for task ${taskInstanceId}: ${redactSensitive(detail).slice(0, 200)}`,
     );
     return { ok: false, error: googleErrorMessage("events.delete", res.status) };
   }
