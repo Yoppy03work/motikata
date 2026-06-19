@@ -13,6 +13,10 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 const AUTHORIZE_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
 
+// state Cookie 名。Phase 11: Next.js App Router の route.ts は HTTP method
+// handler 以外の named export を許可しないため、ここに集約。
+export const GOOGLE_OAUTH_STATE_COOKIE = "mochikata_google_oauth_state";
+
 // Phase 1 の最低スコープ(双方向の Phase 3 で同じ scope を使うので最初から両用)。
 // readonly に絞ると Phase 3 で同意を取り直す必要が出るため calendar を採る。
 export const GOOGLE_OAUTH_SCOPE = [

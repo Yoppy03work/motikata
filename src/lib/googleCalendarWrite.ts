@@ -12,10 +12,58 @@
 //   だけで実害なし)。完全な etag/updated 比較は別途必要だが、本フェーズでは
 //   未実装でも壊れない。
 
+import { formatInTimeZone } from "date-fns-tz";
 import { prisma } from "./db";
 import { ensureGoogleAccessToken } from "./googleAccessToken";
 
 const EVENTS_API_BASE = "https://www.googleapis.com/calendar/v3/calendars";
+
+// Phase 11: DateTime を JST 暦の YYYY-MM-DD に整形 (Google all-day 用)。
+function formatJstYmd(d: Date): string {
+  return formatInTimeZone(d, "Asia/Tokyo", "yyyy-MM-dd");
+}
+
+// Phase 11: Google API の生 error body をユーザーに返さず、status コードと
+// 大分類だけ返すヘルパ。raw body は呼び出し側で console.error にログ。
+// 401/403 は再認証導線、5xx は一時的失敗、429 はレート、それ以外は汎用。
+function googleErrorMessage(op: string, status: number): string {
+  if (status === 401 || status === 403) {
+    return `Google 認証エラー (${op} ${status})。設定から再連携してください`;
+  }
+  if (status === 429) {
+    return `Google API のレート制限に達しました (${op})。しばらくしてから再試行してください`;
+  }
+  if (status >= 500) {
+    return `Google API が一時的に応答していません (${op} ${status})。再試行してください`;
+  }
+  return `Google API エラー (${op} ${status})`;
+}
+
+// Phase 11: Google event を GET して all-day (start.date) か timed
+// (start.dateTime) かを判定する。Patch 時に既存形式を保持するために使う。
+// 失敗時は null を返し、呼び出し側で safe default を選ぶ。
+async function detectGoogleEventDateFormat(
+  calendarExternalId: string,
+  eventExternalId: string,
+  accessToken: string,
+): Promise<"all-day" | "timed" | null> {
+  try {
+    const url = `${EVENTS_API_BASE}/${encodeURIComponent(calendarExternalId)}/events/${encodeURIComponent(eventExternalId)}`;
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) return null;
+    const data = (await res.json().catch(() => null)) as {
+      start?: { date?: string; dateTime?: string };
+    } | null;
+    if (!data || !data.start) return null;
+    if (data.start.date) return "all-day";
+    if (data.start.dateTime) return "timed";
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 // Phase 9: Google API 403 の reason を見て transient (rate / quota) か
 // 真の forbidden かを判定する。Google Calendar API のエラー応答は通常 JSON で
@@ -109,17 +157,35 @@ export async function pushTaskInstanceToGoogle(
   if (patch.title !== undefined) body.summary = patch.title;
   if (patch.notes !== undefined) body.description = patch.notes ?? "";
   if (patch.dueAt !== undefined) {
-    // ISO 8601 (with TZ) で送る。Google 側で all-day かどうかは元イベントの
-    // 既存値 (start.date vs start.dateTime) で判断されるので、明示的に
-    // dateTime で送ると一律 「時間あり」イベントになる。
-    // モチカタは TaskInstance.dueAt を 1 つの DateTime で持つ仕様なので、
-    // ここでは dateTime 統一で送る (元が all-day だった event も時間付きに昇格)。
-    const iso = patch.dueAt.toISOString();
-    body.start = { dateTime: iso, timeZone: "Asia/Tokyo" };
-    // end が未指定だと Google が 422 を返す。dueAt + 1h を end とする
-    // (event の duration を保てない代わりに、一律 1 時間枠で扱う)。
-    const end = new Date(patch.dueAt.getTime() + 60 * 60 * 1000);
-    body.end = { dateTime: end.toISOString(), timeZone: "Asia/Tokyo" };
+    // Phase 11: dueAt 変更時、元の Google event の形式 (all-day vs timed) を
+    // 保持する。元が all-day (start.date) のイベントを dateTime で送ると、
+    // 不可逆に『時間付き 1 時間枠』に変換されて他端末/他カレンダーアプリでも
+    // 見た目が壊れるバグがあった。
+    //   1. GET で既存 event を取得し、start.date / start.dateTime を判定
+    //   2. all-day なら start.date / end.date で送る (end は翌日が Google 仕様)
+    //   3. timed なら従来通り start.dateTime / end.dateTime (+1h end)
+    // GET 失敗時は安全側に倒して timed として送る (旧挙動と同等)。
+    const existingFormat = await detectGoogleEventDateFormat(
+      ti.googleCalendar.externalId,
+      ti.sourceExternalId,
+      accessToken,
+    );
+    if (existingFormat === "all-day") {
+      const ymdJst = formatJstYmd(patch.dueAt);
+      // Google all-day の end.date は exclusive (翌日)
+      const nextDayJst = formatJstYmd(
+        new Date(patch.dueAt.getTime() + 24 * 60 * 60 * 1000),
+      );
+      body.start = { date: ymdJst };
+      body.end = { date: nextDayJst };
+    } else {
+      const iso = patch.dueAt.toISOString();
+      body.start = { dateTime: iso, timeZone: "Asia/Tokyo" };
+      // end が未指定だと Google が 422 を返す。dueAt + 1h を end とする
+      // (event の duration を保てない代わりに、一律 1 時間枠で扱う)。
+      const end = new Date(patch.dueAt.getTime() + 60 * 60 * 1000);
+      body.end = { dateTime: end.toISOString(), timeZone: "Asia/Tokyo" };
+    }
   }
   if (Object.keys(body).length === 0) return { ok: true }; // 何も書き換えない
 
@@ -150,7 +216,12 @@ export async function pushTaskInstanceToGoogle(
   }
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    return { ok: false, error: `events.patch ${res.status} ${detail.slice(0, 200)}` };
+    // Phase 11: raw Google API error body をユーザーに返さない。
+    // サーバーログには full detail を残し、client には status のみ返す。
+    console.error(
+      `[google] events.patch ${res.status} for task ${ti.id}: ${detail.slice(0, 500)}`,
+    );
+    return { ok: false, error: googleErrorMessage("events.patch", res.status) };
   }
   // 成功時: 応答に最新 etag / updated が含まれるので TaskInstance に焼き込む。
   // 次回の events.list 応答と一致すれば loop avoidance で skip される。
@@ -229,9 +300,12 @@ export async function createGoogleEvent(
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
+    console.error(
+      `[google] events.insert ${res.status} for calendar ${googleCalendarId}: ${detail.slice(0, 500)}`,
+    );
     return {
       ok: false,
-      error: `events.insert ${res.status} ${detail.slice(0, 200)}`,
+      error: googleErrorMessage("events.insert", res.status),
     };
   }
   // Phase 6: 応答の etag / updated を持ち帰り、呼び出し側 (POST /api/tasks) で
@@ -380,7 +454,13 @@ export async function deleteGoogleEventForTaskInstance(
   } catch (e) {
     // ネットワーク到達失敗。SHORT TTL で抑えて次の cron に賭ける。
     await writeTombstone(ti.googleCalendarId, ti.sourceExternalId, GOOGLE_TOMBSTONE_TTL_SHORT_MS);
-    return { ok: false, error: `events.delete network: ${(e as Error).message}` };
+    console.error(
+      `[google] events.delete network for task ${taskInstanceId}: ${(e as Error).message}`,
+    );
+    return {
+      ok: false,
+      error: "Google API ネットワークエラー。再試行してください",
+    };
   }
   if (res.status === 404 || res.status === 410) {
     // 既に Google 側で消えていた = 成功扱い。LONG で抑える (再取り込み防止)。
@@ -406,13 +486,19 @@ export async function deleteGoogleEventForTaskInstance(
         );
       }
     }
-    return { ok: false, error: `events.delete ${res.status} ${detail.slice(0, 200)}` };
+    console.error(
+      `[google] events.delete ${res.status} for task ${taskInstanceId}: ${detail.slice(0, 500)}`,
+    );
+    return { ok: false, error: googleErrorMessage("events.delete", res.status) };
   }
   if (!res.ok) {
     // 5xx / rate limit / その他失敗。SHORT TTL で次回 cron に賭ける。
     await writeTombstone(ti.googleCalendarId, ti.sourceExternalId, GOOGLE_TOMBSTONE_TTL_SHORT_MS);
     const detail = await res.text().catch(() => "");
-    return { ok: false, error: `events.delete ${res.status} ${detail.slice(0, 200)}` };
+    console.error(
+      `[google] events.delete ${res.status} for task ${taskInstanceId}: ${detail.slice(0, 500)}`,
+    );
+    return { ok: false, error: googleErrorMessage("events.delete", res.status) };
   }
   // 通常成功。LONG TTL で抑える。
   await writeTombstone(ti.googleCalendarId, ti.sourceExternalId, GOOGLE_TOMBSTONE_TTL_LONG_MS);

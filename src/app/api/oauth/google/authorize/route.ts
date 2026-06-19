@@ -13,10 +13,13 @@
 
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { buildAuthorizeUrl, issueOAuthState } from "@/lib/googleOAuth";
+import {
+  buildAuthorizeUrl,
+  GOOGLE_OAUTH_STATE_COOKIE,
+  issueOAuthState,
+} from "@/lib/googleOAuth";
 import { resolveCookieSecure } from "@/lib/cookieSecure";
 
-export const GOOGLE_OAUTH_STATE_COOKIE = "mochikata_google_oauth_state";
 const STATE_COOKIE_MAX_AGE = 10 * 60; // seconds
 
 export async function GET() {

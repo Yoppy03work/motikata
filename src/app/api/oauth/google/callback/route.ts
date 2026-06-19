@@ -14,9 +14,9 @@ import { encryptGoogleRefreshToken } from "@/lib/googleCrypto";
 import {
   exchangeCodeForTokens,
   fetchGoogleUserEmail,
+  GOOGLE_OAUTH_STATE_COOKIE,
   verifyOAuthState,
 } from "@/lib/googleOAuth";
-import { GOOGLE_OAUTH_STATE_COOKIE } from "../authorize/route";
 
 function redirectToSettings(message: string, isError: boolean): NextResponse {
   const url = new URL(
