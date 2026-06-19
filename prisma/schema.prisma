@@ -176,6 +176,15 @@ model TaskInstance {
   completedAt      DateTime?
   source           TaskSource
   sourceExternalId String?
+  // Google カレンダー由来の予定が、どの GoogleCalendar から取得されたか。
+  // Phase 2 で導入。Google 以外の source では常に null。
+  // カレンダー削除時 (GoogleCalendar.onDelete=Cascade) で taskInstance も
+  // 連動して消える運用にしているため、cascade を張る。
+  googleCalendarId Int?
+  googleCalendar   GoogleCalendar? @relation(fields: [googleCalendarId], references: [id], onDelete: Cascade)
+  // 表示用の HEX 色 (Google color → resolved hex)。バー描画時に MonthCalendar
+  // 側でそのまま style={{ background }} に流し込む。手入力タスクは null。
+  color            String?
   tags             TaskInstanceTag[]
   checklist        TaskInstanceCheck[]
   reminders        Reminder[]
@@ -303,22 +312,56 @@ model CitPortalCredential {
 // email は表示用 + どの Google アカウントで連携したかの記録。
 // lastSyncAt / lastError は他 credential と同じ運用ログ。
 // singletonKey は固定値 "default" を入れて DB レベルで 1 行制約を効かせる。
+//
+// Phase 2 で syncToken を GoogleCredential から外し、GoogleCalendar 側に移管
+// (カレンダー毎に sync token を持つ)。
 model GoogleCredential {
-  id                    Int       @id @default(autoincrement())
-  singletonKey          String    @unique @default("default")
+  id                    Int               @id @default(autoincrement())
+  singletonKey          String            @unique @default("default")
   email                 String
   refreshTokenEnc       String
   accessToken           String?
   accessTokenExpiresAt  DateTime?
   scope                 String
-  // 次回 incremental sync 用 token。null なら次回 full sync (timeMin=now-30d)。
-  // events.list の応答に含まれる nextSyncToken を保存し、次回そのまま使う。
-  // 410 Gone (= token 失効) を受けたら null に戻して full sync に降格。
-  syncToken             String?
   lastSyncAt            DateTime?
   lastError             String?
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+  calendars             GoogleCalendar[]
+}
+
+// Phase 2 で導入する、ユーザーが連携した Google アカウントに紐付くカレンダー
+// 1 件分のメタ + 同期状態。
+// - externalId は Google calendar.list の id (primary / メアド / 任意の string)
+// - colorId は Google が割り当てる色ID。表示時に colorHex (resolveGoogleColor)
+//   で hex に解決して TaskInstance.color に焼き込む
+// - enabled が false なら同期 cron でスキップ
+// - syncToken は events.list の incremental cursor。 GoogleCredential から移管。
+// - 削除時は紐付く TaskInstance も cascade で消す (Phase 2 で連携解除を再連携
+//   無しで部分削除できるようにするため)
+model GoogleCalendar {
+  id              Int               @id @default(autoincrement())
+  credentialId    Int
+  credential      GoogleCredential  @relation(fields: [credentialId], references: [id], onDelete: Cascade)
+  externalId      String
+  summary         String
+  // primary フラグ (= ログインアカウントの主カレンダー)。 UI で常に上位に出す。
+  isPrimary       Boolean           @default(false)
+  // Google 上の色ID (calendarListEntry.colorId)。null なら Google のデフォルト色。
+  colorId         String?
+  // colorId から resolveGoogleColor で解決した hex。fast path 用にキャッシュ。
+  // null なら描画側で fallback (= 既存のソース別色) を使う。
+  colorHex        String?
+  enabled         Boolean           @default(true)
+  syncToken       String?
+  lastSyncAt      DateTime?
+  lastError       String?
+  taskInstances   TaskInstance[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  // 同じ credential に同じ externalId が二重登録されないよう一意制約。
+  @@unique([credentialId, externalId])
 }
 
 model PushSubscription {

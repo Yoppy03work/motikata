@@ -90,6 +90,9 @@ export async function getMonthlyEvents(
       dueAt: true,
       itemType: true,
       required: true,
+      // Phase 2: Google カレンダー由来の予定はカレンダー固有色 (hex) を持つ。
+      // null なら描画側で kind ベース fallback。
+      color: true,
     },
     orderBy: [{ dueAt: "asc" }, { id: "asc" }],
   });
@@ -103,7 +106,12 @@ export async function getMonthlyEvents(
     const ymd = ymdInAppTz(r.dueAt);
     const kind: MonthEvent["kind"] =
       r.itemType === "EVENT" ? "event" : r.required ? "required" : "optional";
-    (buckets[ymd] ||= []).push({ id: r.id, title: r.title, kind });
+    (buckets[ymd] ||= []).push({
+      id: r.id,
+      title: r.title,
+      kind,
+      color: r.color,
+    });
   }
   const map: Record<string, MonthEventDay> = {};
   for (const ymd of Object.keys(buckets)) {

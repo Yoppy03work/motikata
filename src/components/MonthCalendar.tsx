@@ -25,10 +25,16 @@ export type DayIndicators = {
 // Google カレンダー風のカラーバー表示で使う、日ごとのイベント1件分の情報。
 // indicators (件数のみ) とは別に events を渡したとき、MonthCalendar はドット
 // 集約ではなく title 付きバーを描画する。
+//
+// color (hex) があれば kind ベースの class より優先して inline style で描画。
+// Google カレンダー連携 (Phase 2) で取り込んだ予定はカレンダー固有色を
+// 帯びるので、ここに hex を入れて MonthCalendar 側で背景色を上書きする。
+// 手入力タスクは null/undefined のまま → kind ベースのトーンを使う。
 export type MonthEvent = {
   id: number;
   title: string;
   kind: "event" | "required" | "optional";
+  color?: string | null;
 };
 
 // 1日あたりのペイロード単位。
@@ -251,15 +257,27 @@ function CellBars({
 }) {
   return (
     <div className="mt-1 flex flex-col gap-0.5">
-      {visibleBars.map((ev) => (
-        <div
-          key={ev.id}
-          className={`truncate rounded-sm px-1 py-px text-[10px] leading-tight ${barClass(ev.kind)}`}
-          title={ev.title}
-        >
-          {ev.title}
-        </div>
-      ))}
+      {visibleBars.map((ev) => {
+        // color (hex) があれば kind クラスより優先して背景色を上書き。
+        // Google カレンダー由来の予定はカレンダー固有色を帯びる。
+        // text-white は暗色が多い前提で固定 (色を白文字で乗せても十分視認できる
+        // 範囲が広い)。極端に明るい色だと白文字が薄くなるが、Google デフォルト
+        // パレットでは大きな問題は出ない。
+        const inlineStyle = ev.color ? { background: ev.color } : undefined;
+        const className = ev.color
+          ? "truncate rounded-sm px-1 py-px text-[10px] leading-tight text-white"
+          : `truncate rounded-sm px-1 py-px text-[10px] leading-tight ${barClass(ev.kind)}`;
+        return (
+          <div
+            key={ev.id}
+            className={className}
+            style={inlineStyle}
+            title={ev.title}
+          >
+            {ev.title}
+          </div>
+        );
+      })}
       {overflow > 0 ? (
         <div className="px-1 text-[10px] leading-tight text-slate-600 dark:text-slate-400">
           +{overflow} 件

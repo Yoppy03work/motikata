@@ -186,3 +186,55 @@ export async function revokeGoogleToken(token: string): Promise<void> {
     body: new URLSearchParams({ token }).toString(),
   }).catch(() => {});
 }
+
+export type GoogleCalendarListEntry = {
+  id: string;
+  summary: string;
+  // primary: true は自分の主カレンダー
+  primary?: boolean;
+  // selected: ユーザーが UI で表示 ON にしているか (default true)
+  selected?: boolean;
+  // accessRole: "owner" | "writer" | "reader" | "freeBusyReader"
+  accessRole?: string;
+  // calendarListEntry の色 (id)。null なら Google デフォルト色
+  colorId?: string;
+  backgroundColor?: string; // 直接 hex で来る場合もある (calendar color resolver の代替)
+  // hidden カレンダー (連絡先の誕生日等) は無視したいので使う
+  hidden?: boolean;
+  deleted?: boolean;
+};
+
+type CalendarListResponse = {
+  items?: GoogleCalendarListEntry[];
+  nextPageToken?: string;
+};
+
+// CalendarList を全件取得 (paginated)。selected=true でフィルタしない (ユーザーが
+// モチカタ側で別途 enable/disable できるようにするため)。
+export async function listCalendarList(
+  accessToken: string,
+): Promise<GoogleCalendarListEntry[]> {
+  const items: GoogleCalendarListEntry[] = [];
+  let pageToken: string | undefined;
+  do {
+    const params = new URLSearchParams({ maxResults: "250" });
+    if (pageToken) params.set("pageToken", pageToken);
+    const res = await fetch(
+      `https://www.googleapis.com/calendar/v3/users/me/calendarList?${params}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      throw new Error(
+        `calendarList failed: ${res.status} ${detail.slice(0, 200)}`,
+      );
+    }
+    const data = (await res.json()) as CalendarListResponse;
+    for (const c of data.items ?? []) {
+      if (c.hidden || c.deleted) continue;
+      items.push(c);
+    }
+    pageToken = data.nextPageToken;
+  } while (pageToken);
+  return items;
+}
