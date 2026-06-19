@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireAuthApi } from "@/lib/authGuard";
 import { TaskCreateInput, TaskListQuery } from "@/lib/validation/task";
+import { createGoogleEvent } from "@/lib/googleCalendarWrite";
 
 export async function GET(req: Request) {
   const guard = await requireAuthApi();
@@ -45,10 +46,40 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const { title, notes, dueAt, itemType, required, priority, tagIds, checklist, reminders } =
-    parsed.data;
+  const {
+    title,
+    notes,
+    dueAt,
+    itemType,
+    required,
+    priority,
+    tagIds,
+    checklist,
+    reminders,
+    googleCalendarId,
+  } = parsed.data;
 
   const due = new Date(dueAt);
+
+  // Phase 4: googleCalendarId 指定があれば Google に events.insert してから
+  // local 保存。Google 側失敗時は local も作らない (片寄を避ける)。
+  // 成功時は source=GOOGLE + sourceExternalId + googleCalendarId で作る
+  // (次回 sync で deduplicate される)。
+  let googleEventId: string | null = null;
+  if (googleCalendarId) {
+    const r = await createGoogleEvent(googleCalendarId, {
+      title,
+      notes: notes ?? null,
+      dueAt: due,
+    });
+    if (!r.ok) {
+      return NextResponse.json(
+        { error: `Google への作成に失敗しました: ${r.error}` },
+        { status: 502 },
+      );
+    }
+    googleEventId = r.eventId;
+  }
 
   const created = await prisma.$transaction(async (tx) => {
     const instance = await tx.taskInstance.create({
@@ -59,7 +90,9 @@ export async function POST(req: Request) {
         itemType,
         required,
         priority,
-        source: "MANUAL",
+        source: googleCalendarId ? "GOOGLE" : "MANUAL",
+        sourceExternalId: googleEventId,
+        googleCalendarId: googleCalendarId ?? null,
         status: "OPEN",
         tags: tagIds.length
           ? {

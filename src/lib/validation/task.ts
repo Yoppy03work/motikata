@@ -23,6 +23,10 @@ export const TaskCreateInput = z.object({
       }),
     )
     .default([]),
+  // Phase 4: 指定すると、ローカル作成と同時に Google カレンダーにも push し、
+  // sourceExternalId に Google event id を入れて source=GOOGLE で保存する。
+  // 未指定なら従来通り source=MANUAL の純ローカルタスク。
+  googleCalendarId: z.number().int().optional(),
 });
 export type TaskCreateInput = z.infer<typeof TaskCreateInput>;
 
