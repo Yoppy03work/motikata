@@ -13,7 +13,9 @@ import {
   startOfWeek,
 } from "date-fns";
 import { ja } from "date-fns/locale/ja";
-import { MAX_BARS_PER_CELL } from "@/lib/calendarConstants";
+// MAX_BARS_PER_CELL は server-side (indicators.ts) でのみ使うようになった
+// (Phase 2 で events を MonthEventDay {events, hidden} 形式でサーバー側で
+// 切り詰める設計に変更)。client 側は受け取った events をそのまま render する。
 
 export type DayIndicators = {
   events?: number;

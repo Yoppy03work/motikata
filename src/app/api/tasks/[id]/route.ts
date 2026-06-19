@@ -51,6 +51,26 @@ export async function PATCH(
   if (parsed.data.required !== undefined) data.required = parsed.data.required;
   if (parsed.data.priority !== undefined) data.priority = parsed.data.priority;
 
+  // Phase 13.5: dueAt 変更時に endAt も同じ delta で shift する (= "move"
+  // 意味論)。Phase 13 では endAt を更新せず置き去りにしていたため:
+  //   - dueAt を後ろにずらすと end<=start で 1h fallback が発火し
+  //     timed event の duration が silently 短縮
+  //   - dueAt を前にずらすと end が固定で multi-day all-day が縮む
+  // PATCH UI は dueAt しか変更させないので、duration を保つには delta shift が必要。
+  // 既存 row の endAt が NULL の場合は何もしない (Phase 11/12 までと同じ
+  // dueAt+1h fallback path を write 側で踏む)。
+  if (parsed.data.dueAt !== undefined) {
+    const existing = await prisma.taskInstance.findUnique({
+      where: { id },
+      select: { dueAt: true, endAt: true },
+    });
+    if (existing && existing.endAt) {
+      const newDueAt = new Date(parsed.data.dueAt);
+      const delta = newDueAt.getTime() - existing.dueAt.getTime();
+      data.endAt = new Date(existing.endAt.getTime() + delta);
+    }
+  }
+
   try {
     const updated = await prisma.taskInstance.update({
       where: { id },
