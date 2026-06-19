@@ -6,8 +6,9 @@
 // 設定 / メモ / 時間割 など追加対象がない画面では非表示。
 
 import { useEffect, useState } from "react";
-import { useRouter, usePathname } from "next/navigation";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { TaskForm } from "./TaskForm";
+import { isValidYmd } from "@/lib/week";
 
 const HIDDEN_PREFIXES = ["/settings", "/memo", "/classes", "/templates", "/login"];
 
@@ -25,10 +26,18 @@ function todayJstYmd(): string {
 export function AddFab() {
   const pathname = usePathname();
   const router = useRouter();
+  // /today?date=YMD など、URL の date クエリで「閲覧中の日」が指定されて
+  // いるなら、FAB を開いた直後の日付プリフィルにそれを使う。
+  // 未指定 / 不正な値なら今日にフォールバック。
+  const searchParams = useSearchParams();
+  const viewedYmd = (() => {
+    const q = searchParams.get("date");
+    return q && isValidYmd(q) ? q : todayJstYmd();
+  })();
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<"choose" | "form">("choose");
   const [itemType, setItemType] = useState<"TASK" | "EVENT">("TASK");
-  const [ymd, setYmd] = useState<string>(todayJstYmd());
+  const [ymd, setYmd] = useState<string>(viewedYmd);
 
   useEffect(() => {
     if (!open) return;
@@ -55,8 +64,10 @@ export function AddFab() {
   };
 
   const openSheet = () => {
-    // 開くたびに「今日」にリセット(初期値として親切)。
-    setYmd(todayJstYmd());
+    // 開くたびにプリフィル日付をリセット。
+    // /today?date=YMD など URL で日付が指定されているならその日、
+    // 無ければ JST の今日。前回入力中の状態が残らないようにする。
+    setYmd(viewedYmd);
     setOpen(true);
     setStep("choose");
   };
