@@ -322,7 +322,17 @@ async function syncOneCalendar(
             //   etag が変わっている OR ev.updated > existing.googleUpdatedAt
             // のいずれかを必須にする。それでも etag/updatedAt が両方無い
             // legacy 行で発火しないよう、両方とも比較不能なら revive 抑制。
-            const etagChanged = !!(ev.etag && existing.googleEtag !== ev.etag);
+            //
+            // Phase 10: existing.googleEtag が NULL (= 比較ベースラインが無い)
+            // ケースでは etagChanged は単に「初めて etag を受信した」状態を
+            // 意味するため、状態変化の証拠にならない。Phase 6 migration 直後の
+            // 全 SKIPPED 行が初回 sync で revive されないように、
+            // existing.googleEtag が non-null の場合だけ etag 比較を有効に。
+            const etagChanged = !!(
+              ev.etag &&
+              existing.googleEtag &&
+              existing.googleEtag !== ev.etag
+            );
             const updatedAdvanced = !!(
               updatedAt &&
               existing.googleUpdatedAt &&
