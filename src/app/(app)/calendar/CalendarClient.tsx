@@ -35,6 +35,13 @@ export function CalendarClient({
       if (nowJstYmd() !== todayYmd) router.refresh();
     };
 
+    // SSR が JST 23:59:59 に走り、エフェクト実行が 00:00:01 になるケースを
+    // 拾うため、effect マウント直後にも 1 回チェックする。
+    // ここで refresh が走ると todayYmd が更新されて effect が再実行され、
+    // 新しい todayYmd で setTimeout が組み直されるため、無限ループには
+    // ならない (nowJstYmd === todayYmd になった時点で no-op)。
+    refreshIfStale();
+
     const now = new Date();
     const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);
     const msUntilMidnight =
