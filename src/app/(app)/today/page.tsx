@@ -98,8 +98,18 @@ export default async function TodayPage({
   const primary = groupByAxis(primaryItems);
   const tomorrow = showTomorrowPrep ? groupByAxis(tomorrowItems) : null;
 
-  const primaryLabel = format(viewDate, "M月d日 (EEE)", { locale: ja });
-  const tomorrowLabel = format(addDays(viewDate, 1), "M月d日 (EEE)", { locale: ja });
+  // viewDate は parseYmd 由来で「JST 0:00 を UTC instant で表現」しているため、
+  // 非 JST ホスト(例: UTC デプロイ)で date-fns format() を素で叩くと
+  // 前日にずれる(Codex review)。formatInTimeZone を経由して APP_TZ で描画する。
+  const primaryLabel = formatInTimeZone(viewDate, APP_TZ, "M月d日 (EEE)", {
+    locale: ja,
+  });
+  const tomorrowLabel = formatInTimeZone(
+    addDays(viewDate, 1),
+    APP_TZ,
+    "M月d日 (EEE)",
+    { locale: ja },
+  );
 
   const prevYmd = ymdJst(addDays(viewDate, -1));
   const nextYmd = ymdJst(addDays(viewDate, 1));
@@ -136,7 +146,7 @@ export default async function TodayPage({
       <header className="mb-4 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-xs text-slate-600 dark:text-slate-400">
-            <span className="tabular-nums">{format(viewDate, "yyyy年")}</span>
+            <span className="tabular-nums">{formatInTimeZone(viewDate, APP_TZ, "yyyy年")}</span>
             <span className="mx-1.5 text-slate-600">·</span>
             <span>{isToday ? "今日" : "閲覧中"}</span>
           </p>

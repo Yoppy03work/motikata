@@ -1,6 +1,18 @@
+import { formatInTimeZone } from "date-fns-tz";
 import { prisma } from "./db";
 import { getClassDayMap } from "./classDays";
+import { APP_TZ } from "./tz";
 import type { DayIndicators, MonthEvent } from "@/components/MonthCalendar";
+
+// DateTime → "YYYY-MM-DD" を APP_TZ ベースで返す。
+// 手書きの "Date.getTime() + 9h → toISOString().slice(0,10)" は JST が
+// DST を持たないため今は動くが、プロジェクト規約 (today/page.tsx,
+// dispatchReminders.ts など) は formatInTimeZone を使っており、ここだけ
+// 例外にしておく合理性が無い。将来 APP_TZ を DST のある TZ に振り替えた
+// 際の事故を避けるため揃える。
+function ymdInAppTz(d: Date): string {
+  return formatInTimeZone(d, APP_TZ, "yyyy-MM-dd");
+}
 
 export async function getMonthlyIndicators(
   fromYmd: string,
@@ -25,9 +37,7 @@ export async function getMonthlyIndicators(
   // ズレることを防げる。
   for (const r of rows) {
     if (r.status !== "OPEN") continue;
-    // Asia/Tokyo日に丸める
-    const jst = new Date(r.dueAt.getTime() + 9 * 60 * 60 * 1000);
-    const ymd = jst.toISOString().slice(0, 10);
+    const ymd = ymdInAppTz(r.dueAt);
     const bucket = (map[ymd] ||= { events: 0, required: 0, optional: 0 });
     if (r.itemType === "EVENT") bucket.events = (bucket.events ?? 0) + 1;
     else if (r.required) bucket.required = (bucket.required ?? 0) + 1;
@@ -47,6 +57,19 @@ export async function getMonthlyIndicators(
 // indicators との違い: 件数ではなく実体(id/title/kind)を渡したいので別関数。
 // 範囲は wide range(±12 ヶ月)で呼ばれる想定だが、status=OPEN フィルタが効くので
 // 多くてもユーザー1人で数百件オーダー。
+//
+// セルに並べきれずクリップされる際の優先順位:
+// 1. event(時間拘束のある予定) を最優先
+// 2. required(必須タスク)
+// 3. optional(任意タスク)
+// 同じ kind 内は dueAt 昇順(prisma orderBy + V8 stable sort で維持)。
+// 朝のタスクが先に並んで午後の授業が「+1 件」に押し出される事故を防ぐ。
+const KIND_PRIORITY: Record<MonthEvent["kind"], number> = {
+  event: 0,
+  required: 1,
+  optional: 2,
+};
+
 export async function getMonthlyEvents(
   fromYmd: string,
   toYmd: string,
@@ -68,11 +91,13 @@ export async function getMonthlyEvents(
 
   const map: Record<string, MonthEvent[]> = {};
   for (const r of rows) {
-    const jst = new Date(r.dueAt.getTime() + 9 * 60 * 60 * 1000);
-    const ymd = jst.toISOString().slice(0, 10);
+    const ymd = ymdInAppTz(r.dueAt);
     const kind: MonthEvent["kind"] =
       r.itemType === "EVENT" ? "event" : r.required ? "required" : "optional";
     (map[ymd] ||= []).push({ id: r.id, title: r.title, kind });
+  }
+  for (const ymd of Object.keys(map)) {
+    map[ymd].sort((a, b) => KIND_PRIORITY[a.kind] - KIND_PRIORITY[b.kind]);
   }
   return map;
 }
