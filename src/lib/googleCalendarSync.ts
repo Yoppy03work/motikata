@@ -52,6 +52,7 @@ type GoogleEvent = {
   start?: { date?: string; dateTime?: string; timeZone?: string };
   end?: { date?: string; dateTime?: string; timeZone?: string };
   updated?: string;
+  etag?: string;
   colorId?: string; // event 固有の色 (calendar 色より優先)
 };
 
@@ -194,6 +195,15 @@ async function syncOneCalendar(
     return p;
   };
 
+  // Phase 6: ローカルで削除したイベントの tombstone をまとめて読み込んでおく
+  // (有効期限内のもののみ)。events.list で同じ id が戻ってきたら再生成しない。
+  const now = new Date();
+  const tombstones = await prisma.googleTombstone.findMany({
+    where: { googleCalendarId: cal.id, expiresAt: { gt: now } },
+    select: { externalEventId: true },
+  });
+  const tombstoneSet = new Set(tombstones.map((t) => t.externalEventId));
+
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       do {
@@ -212,6 +222,24 @@ async function syncOneCalendar(
               });
               cancelled++;
             }
+            // Google 側で cancelled になったので、tombstone は不要 (上書き
+            // 防止の意味がない)。あれば消す。
+            if (tombstoneSet.has(ev.id)) {
+              await prisma.googleTombstone.deleteMany({
+                where: { googleCalendarId: cal.id, externalEventId: ev.id },
+              });
+              tombstoneSet.delete(ev.id);
+            }
+            continue;
+          }
+          // Phase 6: tombstone があるイベントは「モチカタで消した」シグナル。
+          // Google 側で復活させていない (= まだ Google 側に残ってる)
+          // 状態なので、ローカルへの再生成はスキップする。
+          // events.delete API が落ちて Google には残った場合のリカバリパス。
+          // 期限 (30 日) を過ぎたら tombstone は自動的に掃除されるので
+          // 「ずっと再生成されない」状態にはならない。
+          if (tombstoneSet.has(ev.id)) {
+            skipped++;
             continue;
           }
           const dueAt = parseEventDate(ev);
@@ -222,6 +250,7 @@ async function syncOneCalendar(
           // 表示色: event 個別の colorId > calendar の colorHex の優先で解決。
           const eventColor = resolveGoogleEventColor(ev.colorId);
           const color = eventColor ?? cal.colorHex ?? null;
+          const updatedAt = ev.updated ? new Date(ev.updated) : null;
           const data = {
             title: ev.summary,
             notes: buildNotes(ev),
@@ -232,12 +261,22 @@ async function syncOneCalendar(
             sourceExternalId: ev.id,
             googleCalendarId: cal.id,
             color,
+            googleEtag: ev.etag ?? null,
+            googleUpdatedAt: updatedAt,
           };
           const existing = await prisma.taskInstance.findFirst({
             where: { source: "GOOGLE", sourceExternalId: ev.id },
-            select: { id: true },
+            select: { id: true, googleEtag: true, googleUpdatedAt: true },
           });
           if (existing) {
+            // Phase 6: loop avoidance。
+            // events.list 応答の etag が既に保持しているものと完全一致 →
+            // 「自分が直前に events.patch / insert した結果が echo されてきた」
+            // か「他に何も変化がない」かのどちらかなので、no-op で抜ける。
+            // (DB 書き込み・余計な update カウンタを節約)
+            if (ev.etag && existing.googleEtag === ev.etag) {
+              continue;
+            }
             await prisma.taskInstance.update({
               where: { id: existing.id },
               data,

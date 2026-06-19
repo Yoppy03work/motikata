@@ -168,6 +168,21 @@ cron.schedule(
   { timezone: "Asia/Tokyo" },
 );
 
+// cleanup-google-tombstones: 毎日 04:30 JST。
+// 30 日経過した tombstone を物理削除して、ローカル削除済みなのに sync 側で
+// スキップされ続ける状態が永続化しないようにする。GoogleCalendar 同期 cron
+// (04:00) と被らせない時間にする。
+cron.schedule(
+  "30 4 * * *",
+  () => {
+    void callJob(
+      "/api/jobs/cleanup-google-tombstones",
+      "cleanup-google-tombstones",
+    );
+  },
+  { timezone: "Asia/Tokyo" },
+);
+
 process.on("SIGINT", () => {
   console.log("[worker] shutting down");
   process.exit(0);

@@ -185,6 +185,14 @@ model TaskInstance {
   // 表示用の HEX 色 (Google color → resolved hex)。バー描画時に MonthCalendar
   // 側でそのまま style={{ background }} に流し込む。手入力タスクは null。
   color            String?
+  // Phase 6 (衝突解決): Google から最後に受け取った etag。
+  // events.patch 時に If-Match で送り、412 (precondition failed) を受けたら
+  // Google 側で別更新が入った合図なのでユーザーに通知して上書きを防ぐ。
+  // events.list の各 item でも etag が返るので、その都度更新する。
+  googleEtag        String?
+  // Phase 6: Google "updated" timestamp。実装上は loop 検出と「自分が書いた
+  // のと同じ updated なら no-op」判定に使う。
+  googleUpdatedAt   DateTime?
   tags             TaskInstanceTag[]
   checklist        TaskInstanceCheck[]
   reminders        Reminder[]
@@ -357,11 +365,36 @@ model GoogleCalendar {
   lastSyncAt      DateTime?
   lastError       String?
   taskInstances   TaskInstance[]
+  tombstones      GoogleTombstone[]
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 
   // 同じ credential に同じ externalId が二重登録されないよう一意制約。
   @@unique([credentialId, externalId])
+}
+
+// Phase 6: モチカタで削除した GOOGLE 由来 TaskInstance の "墓標"。
+//
+// 用途:
+//   ローカルで DELETE → Google API で events.delete を試みる際、
+//   Google 側 API が落ちる/遅延すると、ローカル行は消えたが Google には
+//   残ったまま、というケースが発生する。次回 sync で events.list が
+//   その「Google には残っている」イベントを再度引いてきて、ローカルに
+//   新規行として作り直してしまう (delete propagation の取り戻し問題)。
+//
+//   tombstone があれば sync 側で「これは消したやつ」と認識して再生成を
+//   スキップする。expiresAt を過ぎたら掃除 (cleanup cron) — 30 日以上
+//   経っていれば Google 側でも本当に消えているはずなので不要。
+model GoogleTombstone {
+  id               Int             @id @default(autoincrement())
+  googleCalendarId Int
+  googleCalendar   GoogleCalendar  @relation(fields: [googleCalendarId], references: [id], onDelete: Cascade)
+  externalEventId  String
+  deletedAt        DateTime        @default(now())
+  expiresAt        DateTime
+
+  @@unique([googleCalendarId, externalEventId])
+  @@index([expiresAt])
 }
 
 model PushSubscription {

@@ -65,7 +65,10 @@ export async function POST(req: Request) {
   // local 保存。Google 側失敗時は local も作らない (片寄を避ける)。
   // 成功時は source=GOOGLE + sourceExternalId + googleCalendarId で作る
   // (次回 sync で deduplicate される)。
+  // Phase 6: 応答の etag / updated も local に焼き込み、loop avoidance を有効化。
   let googleEventId: string | null = null;
+  let googleEtag: string | null = null;
+  let googleUpdatedAt: Date | null = null;
   if (googleCalendarId) {
     const r = await createGoogleEvent(googleCalendarId, {
       title,
@@ -79,6 +82,8 @@ export async function POST(req: Request) {
       );
     }
     googleEventId = r.eventId;
+    googleEtag = r.etag;
+    googleUpdatedAt = r.updatedAt;
   }
 
   const created = await prisma.$transaction(async (tx) => {
@@ -93,6 +98,8 @@ export async function POST(req: Request) {
         source: googleCalendarId ? "GOOGLE" : "MANUAL",
         sourceExternalId: googleEventId,
         googleCalendarId: googleCalendarId ?? null,
+        googleEtag,
+        googleUpdatedAt,
         status: "OPEN",
         tags: tagIds.length
           ? {

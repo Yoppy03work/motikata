@@ -61,18 +61,23 @@ export async function PATCH(
     // UI 側に通知する。再 sync で乖離は検出/補正される (next pull で
     // sourceExternalId マッチで Google 値が local に戻る)。
     let googlePushError: string | undefined;
+    let googleConflict = false;
     if (updated.source === "GOOGLE") {
       const r = await pushTaskInstanceToGoogle(updated.id, {
         title: parsed.data.title,
         notes: parsed.data.notes ?? undefined,
         dueAt: parsed.data.dueAt ? new Date(parsed.data.dueAt) : undefined,
       });
-      if (!r.ok) googlePushError = r.error;
+      if (!r.ok) {
+        googlePushError = r.error;
+        googleConflict = !!r.conflict;
+      }
     }
     return NextResponse.json({
       ok: true,
       item: updated,
       ...(googlePushError ? { googlePushError } : {}),
+      ...(googleConflict ? { googleConflict: true } : {}),
     });
   } catch (e) {
     if (
