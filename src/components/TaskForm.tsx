@@ -171,7 +171,21 @@ export function TaskForm({
         await onSaved();
       } else {
         const body = await res.json().catch(() => ({}));
-        setError(body.error ? JSON.stringify(body.error) : "保存に失敗しました");
+        // Phase 7: Google 失敗時 (502) は素直に message を出し、
+        // "モチカタのみで再試行" の導線を添える。
+        // body.error が string (Google failure path) と Zod object 両方ある。
+        let msg: string;
+        if (typeof body.error === "string") {
+          msg = body.error;
+        } else if (body.error && typeof body.error === "object") {
+          msg = "入力に問題があります";
+        } else {
+          msg = "保存に失敗しました";
+        }
+        if (res.status === 502 && googleCalendarId !== null) {
+          msg += "\n保存先を『モチカタのみ』に切り替えて再試行できます";
+        }
+        setError(msg);
       }
     });
   };
