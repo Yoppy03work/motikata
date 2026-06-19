@@ -63,11 +63,20 @@ export async function PATCH(
     let googlePushError: string | undefined;
     let googleConflict = false;
     if (updated.source === "GOOGLE") {
-      const r = await pushTaskInstanceToGoogle(updated.id, {
+      // Phase 11: notes は null (explicit clear) と undefined (no-change) を
+      // 区別して push する必要がある。Phase 3 では `?? undefined` で潰して
+      // いたため、ユーザーが notes をクリアしても Google 側 description が
+      // 残るデータ消し忘れバグがあった。
+      // PATCH スキーマでは notes: .optional().nullable() なので、
+      // 'notes' キーが parsed.data に存在するかで判定する。
+      const patch: Parameters<typeof pushTaskInstanceToGoogle>[1] = {
         title: parsed.data.title,
-        notes: parsed.data.notes ?? undefined,
         dueAt: parsed.data.dueAt ? new Date(parsed.data.dueAt) : undefined,
-      });
+      };
+      if ("notes" in parsed.data) {
+        patch.notes = parsed.data.notes;
+      }
+      const r = await pushTaskInstanceToGoogle(updated.id, patch);
       if (!r.ok) {
         googlePushError = r.error;
         googleConflict = !!r.conflict;
