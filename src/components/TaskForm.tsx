@@ -182,7 +182,12 @@ export function TaskForm({
         } else {
           msg = "保存に失敗しました";
         }
-        if (res.status === 502 && googleCalendarId !== null) {
+        // 502 (Google insert 失敗) と 500 (transaction failure 後の rollback) の
+        // どちらでも googleCalendarId が選択されていれば retry hint を出す。
+        if (
+          (res.status === 502 || res.status === 500) &&
+          googleCalendarId !== null
+        ) {
           msg += "\n保存先を『モチカタのみ』に切り替えて再試行できます";
         }
         setError(msg);
@@ -419,7 +424,9 @@ export function TaskForm({
         />
       </div>
 
-      {error && <p className="text-xs text-rose-400">{error}</p>}
+      {error && (
+        <p className="whitespace-pre-line text-xs text-rose-400">{error}</p>
+      )}
 
       <div className="flex gap-2 pt-1">
         <button

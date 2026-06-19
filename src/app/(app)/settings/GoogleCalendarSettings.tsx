@@ -90,10 +90,15 @@ export function GoogleCalendarSettings() {
         updated?: number;
         cancelled?: number;
         skipped?: number;
+        skippedTombstone?: number;
       };
       if (res.ok && body.ok) {
+        const tombstoneSuffix =
+          body.skippedTombstone && body.skippedTombstone > 0
+            ? ` / 削除済 ${body.skippedTombstone}`
+            : "";
         setMessage(
-          `同期完了: 追加 ${body.added ?? 0} / 更新 ${body.updated ?? 0} / 取消 ${body.cancelled ?? 0} / スキップ ${body.skipped ?? 0}`,
+          `同期完了: 追加 ${body.added ?? 0} / 更新 ${body.updated ?? 0} / 取消 ${body.cancelled ?? 0} / スキップ ${body.skipped ?? 0}${tombstoneSuffix}`,
         );
         await refresh();
         router.refresh();

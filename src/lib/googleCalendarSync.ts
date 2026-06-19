@@ -277,21 +277,29 @@ async function syncOneCalendar(
           const eventColor = resolveGoogleEventColor(ev.colorId);
           const color = eventColor ?? cal.colorHex ?? null;
           const updatedAt = parseGoogleTimestamp(ev.updated);
-          // Phase 7: 復活 (Google で undelete) を検出して status=OPEN に戻す。
-          // 直前の cancelled で SKIPPED にしていた行は、ここに来た時点で
-          // 「Google が confirmed と言っているので有効」とみなす。
-          const data = {
+          // Phase 8: 既存行 update では「Google が source of truth な field」
+          // だけ書き戻す。ユーザーがローカルで触れる field (status, required,
+          // itemType, priority, completedAt) は上書きしない。
+          // Phase 7 で status: "OPEN" を unconditional に入れていたが、
+          // DONE/SKIPPED の Google タスクが毎 sync で OPEN に巻き戻る regression
+          // を起こしていた。SKIPPED→OPEN (undelete) のみ別 path で復活させる。
+          const updateData = {
             title: ev.summary,
             notes: buildNotes(ev),
             dueAt,
+            color,
+            googleEtag: ev.etag ?? null,
+            googleUpdatedAt: updatedAt,
+          };
+          // 新規 create は status=OPEN + itemType=EVENT + required=false の
+          // デフォルトをここで決める。create-only な field をまとめる。
+          const createData = {
+            ...updateData,
             itemType: "EVENT" as const,
             required: false,
             source: "GOOGLE" as const,
             sourceExternalId: ev.id,
             googleCalendarId: cal.id,
-            color,
-            googleEtag: ev.etag ?? null,
-            googleUpdatedAt: updatedAt,
             status: "OPEN" as const,
           };
           const existing = await prisma.taskInstance.findFirst({
@@ -304,30 +312,39 @@ async function syncOneCalendar(
             },
           });
           if (existing) {
+            // Phase 8: SKIPPED→OPEN の復活 (Google で undelete) は明示的に
+            // status を倒す。それ以外 (OPEN/DONE) はローカル意図を尊重。
+            const reviveFromSkipped = existing.status === "SKIPPED";
             // Phase 6/7: loop avoidance。etag 一致 = 「自分が直前に書いた
-            // echo」または「変化無し」。
-            // ただし SKIPPED 状態のときは復活させる必要があるので skip しない。
+            // echo」または「変化無し」。Phase 8: status clobber を消したので
+            // status === "OPEN" の追加条件は不要になり、純粋な etag 比較に戻す。
+            // 復活が必要なケース (reviveFromSkipped) は etag が一致しても抜けない。
             if (
               ev.etag &&
               existing.googleEtag === ev.etag &&
-              existing.status === "OPEN"
+              !reviveFromSkipped
             ) {
               continue;
             }
-            // Phase 7 (Reviewer の loop-race 防止): Google updated が古い
-            // ものを上書きしない。新しい updated が来たときだけ書き戻し対象。
-            // (5 min sync ↔ sub-second push の競合で、stale な etag に
-            //  巻き戻されるのを防ぐ)
+            // Phase 7 (Reviewer の loop-race 防止): Google updated が古いものを
+            // 上書きしない。等値ケースは「Google 側に変化なし」(echo) なので
+            // 同様に skip にする (#6 等値漏れ対策)。
+            // ただし復活ケースだけは status を倒すので skip しない。
             if (
               existing.googleUpdatedAt &&
               updatedAt &&
-              updatedAt.getTime() < existing.googleUpdatedAt.getTime()
+              updatedAt.getTime() <= existing.googleUpdatedAt.getTime() &&
+              !reviveFromSkipped
             ) {
               continue;
             }
-            await prisma.taskInstance.update({
+            // Phase 8: 並行 DELETE で行が消えていても 500 にしないため
+            // updateMany を使う (where 不一致は count=0 で no-op)。
+            await prisma.taskInstance.updateMany({
               where: { id: existing.id },
-              data,
+              data: reviveFromSkipped
+                ? { ...updateData, status: "OPEN", completedAt: null }
+                : updateData,
             });
             updated++;
           } else {
@@ -347,7 +364,7 @@ async function syncOneCalendar(
               skippedTombstone++;
               continue;
             }
-            await prisma.taskInstance.create({ data });
+            await prisma.taskInstance.create({ data: createData });
             added++;
           }
         }
