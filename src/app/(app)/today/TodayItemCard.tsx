@@ -339,6 +339,24 @@ function DetailModal({
         );
         return;
       }
+      // Phase 14c: PATCH 成功でも Google 側 push が失敗するケース (5xx, conflict 等)
+      // を body から拾ってユーザーに伝える。
+      // - googleConflict (412): Google 側で別更新あり → 「同期してから再編集」
+      // - googlePushError: Google push 失敗 (auth / rate / network 等)
+      // ローカル更新は維持されているので "warning" 的に表示する。
+      const body = await res.json().catch(() => ({})) as {
+        googleConflict?: boolean;
+        googlePushError?: string;
+      };
+      if (body.googleConflict) {
+        setPriorityError(
+          "Google 側で先に別の更新が入っています。同期 (/settings → 今すぐ同期) してから再編集してください",
+        );
+      } else if (body.googlePushError) {
+        setPriorityError(
+          `ローカルは保存しましたが Google 反映に失敗: ${body.googlePushError}`,
+        );
+      }
       // 並び順が変わるので RSC を refresh
       router.refresh();
     } finally {
