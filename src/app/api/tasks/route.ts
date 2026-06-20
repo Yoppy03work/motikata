@@ -57,15 +57,20 @@ export async function POST(req: Request) {
     checklist,
     reminders,
     googleCalendarId,
+    endAt: endAtIso,
+    isAllDay,
   } = parsed.data;
 
   const due = new Date(dueAt);
+  const endAt = endAtIso ? new Date(endAtIso) : null;
 
   // Phase 4: googleCalendarId 指定があれば Google に events.insert してから
   // local 保存。Google 側失敗時は local も作らない (片寄を避ける)。
   // 成功時は source=GOOGLE + sourceExternalId + googleCalendarId で作る
   // (次回 sync で deduplicate される)。
   // Phase 6: 応答の etag / updated も local に焼き込み、loop avoidance を有効化。
+  // Phase 14b: endAt / isAllDay を Google insert にも渡し、all-day / multi-day
+  // を Google 側で正しく作成する。
   let googleEventId: string | null = null;
   let googleEtag: string | null = null;
   let googleUpdatedAt: Date | null = null;
@@ -74,6 +79,8 @@ export async function POST(req: Request) {
       title,
       notes: notes ?? null,
       dueAt: due,
+      endAt,
+      isAllDay,
     });
     if (!r.ok) {
       return NextResponse.json(
@@ -97,6 +104,8 @@ export async function POST(req: Request) {
           title,
           notes,
           dueAt: due,
+          endAt,
+          isAllDay,
           itemType,
           required,
           priority,

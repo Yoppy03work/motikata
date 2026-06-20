@@ -44,6 +44,13 @@ export function TaskForm({
   // フォーム内で編集可能にする(以前は disabled で固定だった)
   const [date, setDate] = useState(ymd);
   const [time, setTime] = useState(defaultTime ?? (itemType === "EVENT" ? "09:00" : "20:00"));
+  // Phase 14b: 終日 toggle と終了時刻 (任意)。
+  // - isAllDay=true: 時刻入力は無効化し、保存時 dueAt=日付00:00, endAt=翌日00:00
+  // - endDate/endTime 指定あり: timed event の duration を明示
+  // - 何も入力しない通常 path: 旧挙動 (1h fallback)
+  const [isAllDay, setIsAllDay] = useState(false);
+  const [endDate, setEndDate] = useState("");
+  const [endTime, setEndTime] = useState("");
   const [priority, setPriority] = useState<Priority>("MID");
   const [required, setRequired] = useState(true);
   const [preset, setPreset] = useState<ReminderPreset>(itemType === "EVENT" ? "m15" : "h1");
@@ -136,7 +143,28 @@ export function TaskForm({
       setError("日付を入力してください");
       return;
     }
-    const dueAt = `${date}T${time}:00+09:00`;
+    // Phase 14b: all-day なら時刻無視で 00:00 JST 開始 / 翌日 00:00 JST 終了
+    // (= Google all-day と同じ exclusive end)。endDate 指定があれば multi-day。
+    // timed なら HH:mm + endDate/endTime 指定 (任意)。
+    const dueAt = isAllDay
+      ? `${date}T00:00:00+09:00`
+      : `${date}T${time}:00+09:00`;
+    const endAt: string | undefined = (() => {
+      if (isAllDay) {
+        // exclusive end = endDate 指定があればその翌日、無ければ date の翌日
+        const baseYmd = endDate || date;
+        const [y, m, d] = baseYmd.split("-").map(Number);
+        const next = new Date(Date.UTC(y, m - 1, d + 1));
+        const yy = next.getUTCFullYear();
+        const mm = String(next.getUTCMonth() + 1).padStart(2, "0");
+        const dd = String(next.getUTCDate()).padStart(2, "0");
+        return `${yy}-${mm}-${dd}T00:00:00+09:00`;
+      }
+      if (endDate && endTime) {
+        return `${endDate}T${endTime}:00+09:00`;
+      }
+      return undefined;
+    })();
     const cleanChecklist = checklist
       .map((s, i) => ({ label: s.trim(), orderIdx: i }))
       .filter((c) => c.label.length > 0);
@@ -156,6 +184,9 @@ export function TaskForm({
       tagIds: [],
       checklist: cleanChecklist,
       reminders,
+      // Phase 14b: 終日 toggle と任意の終了時刻。
+      isAllDay,
+      ...(endAt ? { endAt } : {}),
       // googleCalendarId が選ばれていれば POST /api/tasks 側で events.insert
       // を呼んで Google 側にも作る (Phase 4)。未選択なら従来通り MANUAL。
       ...(googleCalendarId !== null ? { googleCalendarId } : {}),
@@ -225,9 +256,52 @@ export function TaskForm({
             type="time"
             value={time}
             onChange={(e) => setTime(e.target.value)}
-            className="w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 px-3 py-2 text-sm outline-none focus:border-sky-500"
+            disabled={isAllDay}
+            className="w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 px-3 py-2 text-sm outline-none focus:border-sky-500 disabled:opacity-50"
           />
         </div>
+      </div>
+
+      {/* Phase 14b: 終日 toggle + 終了日 (任意) + 終了時刻 (任意) */}
+      <div className="space-y-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100/50 dark:bg-slate-900/50 p-2.5">
+        <label className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300">
+          <input
+            type="checkbox"
+            checked={isAllDay}
+            onChange={(e) => setIsAllDay(e.target.checked)}
+            className="h-3.5 w-3.5"
+          />
+          <span>終日 (時刻なし)</span>
+        </label>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="mb-1 block text-[10px] text-slate-500">
+              終了日 (任意)
+            </label>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              placeholder="multi-day"
+              className="w-full rounded-md border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 px-2 py-1.5 text-xs outline-none focus:border-sky-500"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-[10px] text-slate-500">
+              終了時刻 (任意)
+            </label>
+            <input
+              type="time"
+              value={endTime}
+              onChange={(e) => setEndTime(e.target.value)}
+              disabled={isAllDay}
+              className="w-full rounded-md border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 px-2 py-1.5 text-xs outline-none focus:border-sky-500 disabled:opacity-50"
+            />
+          </div>
+        </div>
+        <p className="text-[10px] text-slate-500">
+          終了未指定 → 終日なら翌日 00:00、時刻ありなら +1 時間で自動設定
+        </p>
       </div>
 
       {googleCalendars.length > 0 && (

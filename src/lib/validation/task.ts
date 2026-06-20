@@ -27,6 +27,11 @@ export const TaskCreateInput = z.object({
   // sourceExternalId に Google event id を入れて source=GOOGLE で保存する。
   // 未指定なら従来通り source=MANUAL の純ローカルタスク。
   googleCalendarId: z.number().int().optional(),
+  // Phase 14b: 終了時刻 (multi-day 対応 + duration 保持)。未指定なら 1h fallback。
+  endAt: z.string().datetime({ offset: true }).optional(),
+  // Phase 14b: 終日 event 判定。true なら時刻部分は無視され、当日 00:00 から
+  // 翌日 00:00 (default) または指定 endAt まで all-day で作成される。
+  isAllDay: z.boolean().default(false),
 });
 export type TaskCreateInput = z.infer<typeof TaskCreateInput>;
 
