@@ -186,6 +186,18 @@ cron.schedule(
   { timezone: "Asia/Tokyo" },
 );
 
+// alert-sync-failures: 毎日 07:30 JST。
+// 04:00 / 04:30 の同期と cleanup が終わってから、各種 credential / calendar の
+// lastError を集約して Slack に 1 通通知 (Phase 14e)。
+// エラーゼロ / Slack 未設定なら no-op。失敗が続けば毎朝同じ通知が来る前提。
+cron.schedule(
+  "30 7 * * *",
+  () => {
+    void callJob("/api/jobs/alert-sync-failures", "alert-sync-failures");
+  },
+  { timezone: "Asia/Tokyo" },
+);
+
 process.on("SIGINT", () => {
   console.log("[worker] shutting down");
   process.exit(0);
