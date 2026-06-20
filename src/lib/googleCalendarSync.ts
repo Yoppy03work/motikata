@@ -93,12 +93,16 @@ async function syncCalendarList(
         colorId: c.colorId ?? null,
         colorHex,
         enabled: true,
+        // Phase 14d: Google calendarList.accessRole を保持。
+        // 書き込みパスで "reader" / "freeBusyReader" を早期 reject する用。
+        accessRole: c.accessRole ?? null,
       },
       update: {
         summary: c.summary,
         isPrimary: !!c.primary,
         colorId: c.colorId ?? null,
         colorHex,
+        accessRole: c.accessRole ?? null,
       },
     });
   }

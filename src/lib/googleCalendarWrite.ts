@@ -23,6 +23,15 @@ function formatJstYmd(d: Date): string {
   return formatInTimeZone(d, "Asia/Tokyo", "yyyy-MM-dd");
 }
 
+// Phase 14d: Google calendarList の accessRole から「書き込み可能か」を判定。
+// "owner" / "writer" のみ書き込み許容。"reader" / "freeBusyReader" は read-only。
+// legacy 行 (accessRole NULL; Phase 14d migration 前から取り込み済) は不明なので
+// graceful degradation で write を許容 → 403 を Google に任せる (旧挙動と同じ)。
+function isWritableAccessRole(accessRole: string | null | undefined): boolean {
+  if (!accessRole) return true; // legacy fallback
+  return accessRole === "owner" || accessRole === "writer";
+}
+
 // Phase 11/12: Google API の生 error body をユーザーに返さず、status コードと
 // 大分類だけ返すヘルパ。raw body は呼び出し側で console.error にログ。
 //
@@ -168,12 +177,20 @@ export async function pushTaskInstanceToGoogle(
       // GET fallback は次の trade-off として残しておく (ローカルが古い場合の保険)。
       endAt: true,
       isAllDay: true,
-      googleCalendar: { select: { externalId: true, credential: true } },
+      googleCalendar: { select: { externalId: true, credential: true, accessRole: true } },
     },
   });
   if (!ti) return { ok: false, error: "not found" };
   if (ti.source !== "GOOGLE" || !ti.sourceExternalId || !ti.googleCalendar) {
     return { ok: false, error: "not a google-sourced task" };
+  }
+  // Phase 14d: read-only calendar への write を Google 呼ぶ前に reject。
+  // 403 loop / rate limit 浪費を防ぐ。
+  if (!isWritableAccessRole(ti.googleCalendar.accessRole)) {
+    return {
+      ok: false,
+      error: "このカレンダーは読み取り専用です。Google 側で書き込み権限を確認してください",
+    };
   }
   const cred = ti.googleCalendar.credential;
   let accessToken: string;
@@ -317,10 +334,18 @@ export async function createGoogleEvent(
       externalId: true,
       credential: true,
       enabled: true,
+      accessRole: true,
     },
   });
   if (!cal) return { ok: false, error: "calendar not found" };
   if (!cal.enabled) return { ok: false, error: "calendar disabled" };
+  // Phase 14d: read-only calendar への insert は Google 呼ぶ前に reject。
+  if (!isWritableAccessRole(cal.accessRole)) {
+    return {
+      ok: false,
+      error: "このカレンダーは読み取り専用です。書き込み可能なカレンダーを選んでください",
+    };
+  }
 
   let accessToken: string;
   try {
@@ -500,7 +525,7 @@ export async function deleteGoogleEventForTaskInstance(
       source: true,
       sourceExternalId: true,
       googleCalendarId: true,
-      googleCalendar: { select: { externalId: true, credential: true } },
+      googleCalendar: { select: { externalId: true, credential: true, accessRole: true } },
     },
   });
   if (!ti) return { ok: false, error: "not found" };
@@ -510,6 +535,20 @@ export async function deleteGoogleEventForTaskInstance(
     // から見ると消したはずの行が復活する。これは Phase 1 互換性の限界として
     // 受容する (Phase 2 以降の行は問題なく動く)。
     return { ok: false, error: "not a google-sourced task" };
+  }
+  // Phase 14d: read-only calendar への delete は Google 呼ぶ前に reject。
+  // tombstone を書くことで「ローカル意図は記録、Google には残る」が達成され、
+  // 次回 sync で event は復元されない (30 日)。これは妥当な挙動。
+  if (!isWritableAccessRole(ti.googleCalendar.accessRole)) {
+    await writeTombstone(
+      ti.googleCalendarId,
+      ti.sourceExternalId,
+      GOOGLE_TOMBSTONE_TTL_LONG_MS,
+    );
+    return {
+      ok: false,
+      error: "このカレンダーは読み取り専用のため Google 側からは削除できません。ローカルからは消えています",
+    };
   }
 
   let accessToken: string;

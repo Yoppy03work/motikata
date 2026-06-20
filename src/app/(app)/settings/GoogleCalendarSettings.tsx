@@ -20,6 +20,7 @@ type CalendarRow = {
   isPrimary: boolean;
   colorHex: string | null;
   enabled: boolean;
+  accessRole: string | null;
   lastSyncAt: string | null;
   lastError: string | null;
 };
@@ -230,6 +231,13 @@ export function GoogleCalendarSettings() {
                       {c.isPrimary ? (
                         <span className="ml-1 text-[10px] text-sky-600 dark:text-sky-400">
                           (主)
+                        </span>
+                      ) : null}
+                      {/* Phase 14d: 読み取り専用バッジ */}
+                      {c.accessRole === "reader" ||
+                      c.accessRole === "freeBusyReader" ? (
+                        <span className="ml-1 rounded-sm bg-slate-300 px-1 text-[10px] text-slate-700 dark:bg-slate-700 dark:text-slate-300">
+                          読み取り専用
                         </span>
                       ) : null}
                     </span>

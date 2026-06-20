@@ -369,6 +369,13 @@ model GoogleCalendar {
   // null なら描画側で fallback (= 既存のソース別色) を使う。
   colorHex        String?
   enabled         Boolean           @default(true)
+  // Phase 14d: Google calendarList.accessRole を保持。
+  //  "owner" / "writer" → 書き込み可能
+  //  "reader" / "freeBusyReader" → 読み取り専用
+  // null は legacy 行 (Phase 14d migration 前から取り込み済) で、
+  // 次回 sync で埋まる。null の間は書き込みを許容して 403 を Google に
+  // 任せる (= graceful degradation)。
+  accessRole      String?
   syncToken       String?
   lastSyncAt      DateTime?
   lastError       String?
