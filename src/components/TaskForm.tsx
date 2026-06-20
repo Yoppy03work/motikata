@@ -80,14 +80,28 @@ export function TaskForm({
       .then((res) => (res.ok ? res.json() : { calendars: [] }))
       .then(
         (body: {
-          calendars?: { id: number; summary: string; isPrimary: boolean; colorHex: string | null; enabled: boolean }[];
+          calendars?: {
+            id: number;
+            summary: string;
+            isPrimary: boolean;
+            colorHex: string | null;
+            enabled: boolean;
+            accessRole?: string | null;
+          }[];
         }) => {
           if (cancelled) return;
-          // 「送信先」候補は enabled なものに限定。
-          // disabled なカレンダー (= 取り込まない設定にしているもの) に push
-          // できると意図と食い違うため除外する。
+          // 「送信先」候補は enabled かつ書き込み可能なものに限定。
+          // - disabled (取り込まない設定): 意図と食い違う
+          // - reader / freeBusyReader (Phase 14d): push しても 403 で失敗するので除外
+          // accessRole == null は legacy 行 → 書き込み許容 (Google API に判定を任せる)
           const list = (body.calendars ?? [])
             .filter((c) => c.enabled)
+            .filter(
+              (c) =>
+                !c.accessRole ||
+                c.accessRole === "owner" ||
+                c.accessRole === "writer",
+            )
             .map(({ id, summary, isPrimary, colorHex }) => ({
               id,
               summary,

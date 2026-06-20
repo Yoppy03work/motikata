@@ -27,6 +27,9 @@ export async function GET() {
       isPrimary: true,
       colorHex: true,
       enabled: true,
+      // Phase 14d: UI が「(読み取り専用)」バッジを出すための情報。
+      // null は legacy 行 (Phase 14d 前から取り込み済) で write 許可扱い。
+      accessRole: true,
       lastSyncAt: true,
       lastError: true,
     },
