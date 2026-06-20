@@ -34,8 +34,10 @@ export async function getMonthlyIndicators(
           { dueAt: { lte: to } },
           {
             OR: [
-              { endAt: { gte: from } },
-              { AND: [{ endAt: null }, { dueAt: { gte: from } }] },
+              // Phase 14a.1: endAt > from で strict 比較 (all-day exclusive)。
+              // endAt NULL や反転データは dueAt overlap で拾う。
+              { endAt: { gt: from } },
+              { dueAt: { gte: from } },
             ],
           },
         ],
@@ -156,46 +158,44 @@ export async function getMonthlyEvents(
   //
   // Phase 14a: multi-day event は window 内で重なる全日に展開して入れる。
   // 例: 6/19-6/21 all-day → 6/19, 6/20, 6/21 の 3 日それぞれの bucket に登録。
-  // ただし event.end は all-day では exclusive (Google 仕様) なので、
-  // バケット展開時は end - 1 day までを含める。
+  // all-day / timed どちらも endAt は exclusive 解釈で end 当日を含めない
+  // (all-day: Google 仕様; timed: end 時刻 ≤ 00:00 ならその日は表示しない)。
+  // Phase 14a.1: multi-day event を「開始日」と「継続日」で startIso を分ける。
+  //   - 開始日: startIso = r.dueAt (バー描画で "HH:mm タイトル" になる)
+  //   - 継続日 (2 日目以降): startIso = null (時刻 prefix なしで "タイトル" だけ)
+  //   これで multi-day timed event の day 2/3 に誤った開始時刻が出ない。
   const buckets: Record<string, MonthEvent[]> = {};
+  const startYmd = (r: { dueAt: Date }) => ymdInAppTz(r.dueAt);
   for (const r of rows) {
     const kind: MonthEvent["kind"] =
       r.itemType === "EVENT" ? "event" : r.required ? "required" : "optional";
-    const ev: MonthEvent = {
+    const baseStartIso = r.dueAt.toISOString();
+    const baseDayYmd = startYmd(r);
+    const makeEv = (forYmd: string): MonthEvent => ({
       id: r.id,
       title: r.title,
       kind,
       color: r.color,
       isAllDay: r.isAllDay,
-      startIso: r.dueAt.toISOString(),
-    };
+      // 開始日のみ startIso を持つ。継続日は null で時刻 prefix を抑制。
+      startIso: forYmd === baseDayYmd ? baseStartIso : null,
+    });
     if (r.endAt && r.endAt.getTime() > r.dueAt.getTime()) {
-      // multi-day: 各日に bucket 登録 (window 範囲内のみ)。
-      // all-day では endAt が exclusive (= 翌日 00:00) なので、ループは
-      // 「endAt 未満の各日」を回る (endAt 当日は含めない)。
-      // timed multi-day では endAt 当日まで含める方が直感的なので、
-      // start 当日 + end の前日 (= dueAt 〜 endAt の前日まで) を採用。
       const startMs = r.dueAt.getTime();
       const endMs = r.endAt.getTime();
       const winStartMs = from.getTime();
       const winEndMs = to.getTime();
-      // 1 日 = 24h * 60m * 60s * 1000ms。JST 跨ぎで微妙な誤差出ないよう
-      // ymdInAppTz でループ。
       let cursor = Math.max(startMs, winStartMs);
-      // 終端は endAt - 1ms (exclusive 終了の前まで) と window 終了の小さい方。
       const stopExclusive = Math.min(endMs, winEndMs + 1);
       while (cursor < stopExclusive) {
         const ymd = ymdInAppTz(new Date(cursor));
-        (buckets[ymd] ||= []).push(ev);
-        // 次の JST 日付の 00:00 へ進める。
+        (buckets[ymd] ||= []).push(makeEv(ymd));
         const jstNext = new Date(`${ymd}T00:00:00+09:00`);
         cursor = jstNext.getTime() + 24 * 60 * 60 * 1000;
       }
     } else {
-      // 単点 event。dueAt の日にだけ入れる。
       const ymd = ymdInAppTz(r.dueAt);
-      (buckets[ymd] ||= []).push(ev);
+      (buckets[ymd] ||= []).push(makeEv(ymd));
     }
   }
   const map: Record<string, MonthEventDay> = {};
