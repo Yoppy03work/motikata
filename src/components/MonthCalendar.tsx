@@ -37,6 +37,13 @@ export type MonthEvent = {
   title: string;
   kind: "event" | "required" | "optional";
   color?: string | null;
+  // Phase 14a: 終日イベント判定。true なら時刻を表示せず「終日」扱いにする。
+  // Google 由来の all-day event 専用 (UI には all-day toggle 未実装の現状)。
+  isAllDay?: boolean;
+  // Phase 14a: 開始時刻 (ISO string)。dueAt は client/server JSON 境界で
+  // string になるので MonthEvent でも string で持つ。
+  // 時刻表示で使う。all-day なら null。
+  startIso?: string | null;
 };
 
 // 1日あたりのペイロード単位。
@@ -269,6 +276,21 @@ function CellBars({
         const className = ev.color
           ? "truncate rounded-sm px-1 py-px text-[10px] leading-tight text-white"
           : `truncate rounded-sm px-1 py-px text-[10px] leading-tight ${barClass(ev.kind)}`;
+        // Phase 14a: 時刻 prefix を付ける。 timed なら "HH:mm タイトル"、
+        // all-day なら時刻なしのままタイトルだけ表示。
+        // startIso は client/server 境界で string なので Date 化して JST 整形。
+        let label = ev.title;
+        if (!ev.isAllDay && ev.startIso) {
+          const d = new Date(ev.startIso);
+          if (Number.isFinite(d.getTime())) {
+            const hhmm = d.toLocaleTimeString("ja-JP", {
+              hour: "2-digit",
+              minute: "2-digit",
+              timeZone: "Asia/Tokyo",
+            });
+            label = `${hhmm} ${ev.title}`;
+          }
+        }
         return (
           <div
             key={ev.id}
@@ -276,7 +298,7 @@ function CellBars({
             style={inlineStyle}
             title={ev.title}
           >
-            {ev.title}
+            {label}
           </div>
         );
       })}

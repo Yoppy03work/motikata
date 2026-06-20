@@ -93,8 +93,20 @@ export async function getWeekItemsByDay(
   const from = new Date(`${dates[0]}T00:00:00+09:00`);
   const to = new Date(`${dates[6]}T23:59:59+09:00`);
 
+  // Phase 14a.1: today.ts と同じ overlap range で multi-day event も拾う。
+  // endAt > from で all-day exclusive を厳密判定。
   const instances = await prisma.taskInstance.findMany({
-    where: { dueAt: { gte: from, lte: to } },
+    where: {
+      AND: [
+        { dueAt: { lte: to } },
+        {
+          OR: [
+            { endAt: { gt: from } },
+            { dueAt: { gte: from } },
+          ],
+        },
+      ],
+    },
     include: {
       tags: { include: { tag: true } },
       checklist: { orderBy: { orderIdx: "asc" } },
@@ -105,10 +117,10 @@ export async function getWeekItemsByDay(
   const byDay: Record<string, TodayItem[]> = {};
   for (const ymd of dates) byDay[ymd] = [];
 
+  // Phase 14a.1: multi-day event は week の各日に展開して push。
+  // indicators.ts と同じ exclusive end ロジック。
   for (const i of instances) {
-    const ymd = jstYmd(i.dueAt);
-    if (!(ymd in byDay)) continue;
-    byDay[ymd].push({
+    const baseItem: TodayItem = {
       id: i.id,
       itemType: i.itemType,
       required: i.required,
@@ -116,6 +128,8 @@ export async function getWeekItemsByDay(
       title: i.title,
       subtitle: i.notes ?? undefined,
       dueAt: i.dueAt.toISOString(),
+      endAt: i.endAt?.toISOString() ?? null,
+      isAllDay: i.isAllDay,
       priority: i.priority,
       status: i.status,
       tags: i.tags.map((t) => ({ id: t.tag.id, name: t.tag.name, color: t.tag.color })),
@@ -124,7 +138,24 @@ export async function getWeekItemsByDay(
         label: c.label,
         checked: c.checkedAt !== null,
       })),
-    });
+    };
+    if (i.endAt && i.endAt.getTime() > i.dueAt.getTime()) {
+      const startMs = i.dueAt.getTime();
+      const endMs = i.endAt.getTime();
+      const winStartMs = from.getTime();
+      const winEndMs = to.getTime();
+      let cursor = Math.max(startMs, winStartMs);
+      const stopExclusive = Math.min(endMs, winEndMs + 1);
+      while (cursor < stopExclusive) {
+        const ymd = jstYmd(new Date(cursor));
+        if (ymd in byDay) byDay[ymd].push(baseItem);
+        const jstNext = new Date(`${ymd}T00:00:00+09:00`);
+        cursor = jstNext.getTime() + 24 * 60 * 60 * 1000;
+      }
+    } else {
+      const ymd = jstYmd(i.dueAt);
+      if (ymd in byDay) byDay[ymd].push(baseItem);
+    }
   }
   return byDay;
 }
