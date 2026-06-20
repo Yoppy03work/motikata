@@ -1,0 +1,49 @@
+name: CI
+
+# PR ごと + develop / main への push で tsc / lint / vitest を実行する。
+# Dockerfile は node:20-alpine だが、Vitest / tsc は新しい Node で動くため
+# CI も node 20 で揃える。
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+
+# 同じブランチで連続 push したとき古い run を cancel して節約する。
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: tsc / lint / vitest
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          # Dockerfile に揃える (node:20-alpine)
+          node-version: '20'
+          # 公式 cache (npm の lockfile が変わったら invalidate)
+          cache: 'npm'
+
+      - name: Install dependencies
+        # CI では lockfile に厳密に従って再現性を確保する
+        run: npm ci
+
+      - name: Generate Prisma client
+        # tsc が schema 由来の型を読むので tsc より先に必須
+        run: npx prisma generate
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npx vitest run
