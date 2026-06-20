@@ -26,10 +26,27 @@ export async function getMonthlyIndicators(
   const from = new Date(fromYmd + "T00:00:00+09:00");
   const to = new Date(toYmd + "T23:59:59+09:00");
 
+  // Phase 14a: multi-day overlap も拾う (getMonthlyEvents と同じ where)。
   const [rows, classDayMap] = await Promise.all([
     prisma.taskInstance.findMany({
-      where: { dueAt: { gte: from, lte: to } },
-      select: { dueAt: true, itemType: true, required: true, status: true },
+      where: {
+        AND: [
+          { dueAt: { lte: to } },
+          {
+            OR: [
+              { endAt: { gte: from } },
+              { AND: [{ endAt: null }, { dueAt: { gte: from } }] },
+            ],
+          },
+        ],
+      },
+      select: {
+        dueAt: true,
+        endAt: true,
+        itemType: true,
+        required: true,
+        status: true,
+      },
     }),
     getClassDayMap(fromYmd, toYmd),
   ]);
@@ -40,13 +57,30 @@ export async function getMonthlyIndicators(
   // メインバケットから外しているので、月インジケータも同じ扱いにする。
   // ここで OPEN だけカウントすれば、月ビューと日詳細でドット表示の有無が
   // ズレることを防げる。
+  // Phase 14a: multi-day event は各日に counter を加算する (getMonthlyEvents と
+  // 同じ展開ロジック)。endAt は exclusive 解釈で end 当日を含めない。
   for (const r of rows) {
     if (r.status !== "OPEN") continue;
-    const ymd = ymdInAppTz(r.dueAt);
-    const bucket = (map[ymd] ||= { events: 0, required: 0, optional: 0 });
-    if (r.itemType === "EVENT") bucket.events = (bucket.events ?? 0) + 1;
-    else if (r.required) bucket.required = (bucket.required ?? 0) + 1;
-    else bucket.optional = (bucket.optional ?? 0) + 1;
+    const incrementBucket = (ymd: string) => {
+      const bucket = (map[ymd] ||= { events: 0, required: 0, optional: 0 });
+      if (r.itemType === "EVENT") bucket.events = (bucket.events ?? 0) + 1;
+      else if (r.required) bucket.required = (bucket.required ?? 0) + 1;
+      else bucket.optional = (bucket.optional ?? 0) + 1;
+    };
+    if (r.endAt && r.endAt.getTime() > r.dueAt.getTime()) {
+      const winStartMs = from.getTime();
+      const winEndMs = to.getTime();
+      const stopExclusive = Math.min(r.endAt.getTime(), winEndMs + 1);
+      let cursor = Math.max(r.dueAt.getTime(), winStartMs);
+      while (cursor < stopExclusive) {
+        const ymd = ymdInAppTz(new Date(cursor));
+        incrementBucket(ymd);
+        const jstNext = new Date(`${ymd}T00:00:00+09:00`);
+        cursor = jstNext.getTime() + 24 * 60 * 60 * 1000;
+      }
+    } else {
+      incrementBucket(ymdInAppTz(r.dueAt));
+    }
   }
   // 授業日フラグを混ぜる(タスクが無い日にも色を付けたいので、map にエントリを作る)
   for (const [ymd, isClass] of Object.entries(classDayMap)) {
@@ -82,12 +116,30 @@ export async function getMonthlyEvents(
   const from = new Date(fromYmd + "T00:00:00+09:00");
   const to = new Date(toYmd + "T23:59:59+09:00");
 
+  // Phase 14a: range query を multi-day overlap に拡張。
+  // window [from, to] と event 期間 [dueAt, endAt or dueAt] が重なる行を全部拾う。
+  // endAt が NULL (= 単点 event, Phase 13 以前の通常 event) なら dueAt が
+  // window 内に入っていれば良いので、Prisma の where OR で表現する。
+  // 重なり判定: event.start <= window.to AND (event.end >= window.from OR event.end NULL && event.start >= window.from)
   const rows = await prisma.taskInstance.findMany({
-    where: { dueAt: { gte: from, lte: to }, status: "OPEN" },
+    where: {
+      status: "OPEN",
+      AND: [
+        { dueAt: { lte: to } }, // 開始が window 終わりより前
+        {
+          OR: [
+            { endAt: { gte: from } }, // 終了が window 開始より後 (multi-day overlap)
+            { AND: [{ endAt: null }, { dueAt: { gte: from } }] }, // 単点 event
+          ],
+        },
+      ],
+    },
     select: {
       id: true,
       title: true,
       dueAt: true,
+      endAt: true,
+      isAllDay: true,
       itemType: true,
       required: true,
       // Phase 2: Google カレンダー由来の予定はカレンダー固有色 (hex) を持つ。
@@ -101,17 +153,50 @@ export async function getMonthlyEvents(
   // 切り詰める。サーバー側で先にカットすることで RSC payload を抑え、
   // 1日 50件のような病的ユーザーでも 50 件 title が乗らない。
   // 切り捨てた残数は hidden に保持して「+N 件」表示の精度を維持。
+  //
+  // Phase 14a: multi-day event は window 内で重なる全日に展開して入れる。
+  // 例: 6/19-6/21 all-day → 6/19, 6/20, 6/21 の 3 日それぞれの bucket に登録。
+  // ただし event.end は all-day では exclusive (Google 仕様) なので、
+  // バケット展開時は end - 1 day までを含める。
   const buckets: Record<string, MonthEvent[]> = {};
   for (const r of rows) {
-    const ymd = ymdInAppTz(r.dueAt);
     const kind: MonthEvent["kind"] =
       r.itemType === "EVENT" ? "event" : r.required ? "required" : "optional";
-    (buckets[ymd] ||= []).push({
+    const ev: MonthEvent = {
       id: r.id,
       title: r.title,
       kind,
       color: r.color,
-    });
+      isAllDay: r.isAllDay,
+      startIso: r.dueAt.toISOString(),
+    };
+    if (r.endAt && r.endAt.getTime() > r.dueAt.getTime()) {
+      // multi-day: 各日に bucket 登録 (window 範囲内のみ)。
+      // all-day では endAt が exclusive (= 翌日 00:00) なので、ループは
+      // 「endAt 未満の各日」を回る (endAt 当日は含めない)。
+      // timed multi-day では endAt 当日まで含める方が直感的なので、
+      // start 当日 + end の前日 (= dueAt 〜 endAt の前日まで) を採用。
+      const startMs = r.dueAt.getTime();
+      const endMs = r.endAt.getTime();
+      const winStartMs = from.getTime();
+      const winEndMs = to.getTime();
+      // 1 日 = 24h * 60m * 60s * 1000ms。JST 跨ぎで微妙な誤差出ないよう
+      // ymdInAppTz でループ。
+      let cursor = Math.max(startMs, winStartMs);
+      // 終端は endAt - 1ms (exclusive 終了の前まで) と window 終了の小さい方。
+      const stopExclusive = Math.min(endMs, winEndMs + 1);
+      while (cursor < stopExclusive) {
+        const ymd = ymdInAppTz(new Date(cursor));
+        (buckets[ymd] ||= []).push(ev);
+        // 次の JST 日付の 00:00 へ進める。
+        const jstNext = new Date(`${ymd}T00:00:00+09:00`);
+        cursor = jstNext.getTime() + 24 * 60 * 60 * 1000;
+      }
+    } else {
+      // 単点 event。dueAt の日にだけ入れる。
+      const ymd = ymdInAppTz(r.dueAt);
+      (buckets[ymd] ||= []).push(ev);
+    }
   }
   const map: Record<string, MonthEventDay> = {};
   for (const ymd of Object.keys(buckets)) {

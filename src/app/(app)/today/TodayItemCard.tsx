@@ -157,7 +157,10 @@ export function TodayItemCard({
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1">
-            <span className="text-xs text-slate-600 dark:text-slate-400">{formatInTimeZone(due, APP_TZ, "HH:mm")}</span>
+            {/* Phase 14a: 終日イベントは時刻を出さず「終日」表示 */}
+            <span className="text-xs text-slate-600 dark:text-slate-400">
+              {item.isAllDay ? "終日" : formatInTimeZone(due, APP_TZ, "HH:mm")}
+            </span>
             <span
               className={`rounded-md px-1.5 py-0.5 text-[10px] font-medium ${
                 isEvent
