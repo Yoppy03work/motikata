@@ -2,7 +2,14 @@ import { NextResponse, type NextRequest } from "next/server";
 import { sessionOptions } from "@/lib/session";
 import { isSameOrigin } from "@/lib/csrf";
 
-const PUBLIC_PATHS = ["/login", "/api/auth/login", "/manifest.json", "/sw.js"];
+const PUBLIC_PATHS = [
+  "/login",
+  "/api/auth/login",
+  "/manifest.json",
+  "/sw.js",
+  // 監視 / uptime check 用。認証情報や個人データを返さないため public で問題なし。
+  "/api/health",
+];
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
