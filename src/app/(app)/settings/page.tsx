@@ -8,6 +8,7 @@ import { applyTheme, readTheme, writeTheme, type ThemeMode } from "@/lib/theme";
 import { RepeatIcon } from "@/components/icons";
 import { AcademicImport } from "./AcademicImport";
 import { CitPortalSettings } from "./CitPortalSettings";
+import { PwaInstallPrompt } from "@/components/PwaInstallPrompt";
 import { GoogleCalendarSettings } from "./GoogleCalendarSettings";
 import { ManabaSettings } from "./ManabaSettings";
 import { PushSettings } from "./PushSettings";
@@ -135,6 +136,16 @@ export default function SettingsPage() {
             アプリ通知 (Web Push)
           </h2>
           <PushSettings />
+        </div>
+
+        <div className="rounded-xl border border-slate-200 bg-slate-100 p-4 dark:border-slate-800 dark:bg-slate-900">
+          <h2 className="mb-2 text-sm font-medium text-slate-700 dark:text-slate-300">
+            ホーム画面に追加 (PWA)
+          </h2>
+          <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
+            ブラウザではなく独立アプリとして起動できます。アドレスバーが消えて使い勝手が良くなります。
+          </p>
+          <PwaInstallPrompt />
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-slate-100 p-4 dark:border-slate-800 dark:bg-slate-900">
