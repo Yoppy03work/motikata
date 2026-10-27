@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { formatInTimeZone } from "date-fns-tz";
 import { APP_TZ } from "@/lib/tz";
 import { CompletionModal } from "@/components/CompletionModal";
+import { extractManabaUrl } from "@/lib/manabaUrl";
 import type { TodayItem } from "./types";
 
 // notes 内の URL を anchor 化するためのヘルパ。
@@ -34,6 +35,26 @@ function renderWithLinks(text: string): React.ReactNode[] {
   }
   if (lastIdx < text.length) parts.push(text.slice(lastIdx));
   return parts;
+}
+
+function ExternalLinkIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+      <polyline points="15 3 21 3 21 9" />
+      <line x1="10" y1="14" x2="21" y2="3" />
+    </svg>
+  );
 }
 
 const priorityLabel: Record<TodayItem["priority"], string> = {
@@ -68,6 +89,13 @@ export function TodayItemCard({
 
   const due = new Date(item.dueAt);
   const isEvent = item.itemType === "EVENT";
+  // manaba 由来 (source=ACADEMIC) なら課題ページ URL を復元。
+  // 詳細は src/lib/manabaUrl.ts。null なら link を出さない (静かに no-op)。
+  const manabaUrl = extractManabaUrl({
+    source: item.source,
+    sourceExternalId: item.sourceExternalId,
+    notes: item.subtitle,
+  });
 
   const toggleCheck = (id: number) => {
     const target = checklist.find((c) => c.id === id);
@@ -195,6 +223,20 @@ export function TodayItemCard({
             {item.title}
           </h3>
         </div>
+        {manabaUrl && (
+          <a
+            href={manabaUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            aria-label="manaba で課題ページを開く"
+            title="manaba で開く"
+            className="shrink-0 touch-manipulation rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+          >
+            <ExternalLinkIcon />
+            <span className="sr-only">manaba で開く</span>
+          </a>
+        )}
       </div>
 
       {checklist.length > 0 && (
@@ -264,6 +306,7 @@ export function TodayItemCard({
         done={done}
         isEvent={isEvent}
         pending={pending}
+        manabaUrl={manabaUrl}
         onComplete={complete}
         onUncomplete={uncomplete}
         onSnooze={snooze}
@@ -286,6 +329,7 @@ function DetailModal({
   done,
   isEvent,
   pending,
+  manabaUrl,
   onComplete,
   onUncomplete,
   onSnooze,
@@ -296,6 +340,7 @@ function DetailModal({
   done: boolean;
   isEvent: boolean;
   pending: boolean;
+  manabaUrl: string | null;
   onComplete: () => void;
   onUncomplete: () => void;
   onSnooze: () => void;
@@ -507,7 +552,21 @@ function DetailModal({
             </div>
           )}
 
-          {!item.subtitle && item.checklist.length === 0 && item.tags.length === 0 && (
+          {manabaUrl && (
+            <div className="mb-3">
+              <a
+                href={manabaUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex w-full items-center justify-center gap-2 rounded-md border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm font-medium text-sky-700 dark:text-sky-300 hover:bg-sky-500/20"
+              >
+                <ExternalLinkIcon />
+                manaba で課題ページを開く
+              </a>
+            </div>
+          )}
+
+          {!item.subtitle && item.checklist.length === 0 && item.tags.length === 0 && !manabaUrl && (
             <p className="text-xs text-slate-500">追加情報はありません</p>
           )}
         </div>

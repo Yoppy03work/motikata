@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { formatInTimeZone } from "date-fns-tz";
 import { APP_TZ } from "@/lib/tz";
+import { extractManabaUrl } from "@/lib/manabaUrl";
 
 type TaskHit = {
   id: number;
@@ -18,6 +19,7 @@ type TaskHit = {
   priority: "LOW" | "MID" | "HIGH";
   notes: string | null;
   source: string;
+  sourceExternalId: string | null;
 };
 
 type NoteHit = {
@@ -131,12 +133,33 @@ export default function SearchPage() {
                           {t.status === "DONE" ? "完了" : "スキップ"}
                         </span>
                       )}
-                      <Link
-                        href={`/today?date=${jstYmd(t.dueAt)}`}
-                        className="ml-auto text-sky-600 dark:text-sky-400 hover:underline"
-                      >
-                        その日を開く →
-                      </Link>
+                      {(() => {
+                        const u = extractManabaUrl({
+                          source: t.source,
+                          sourceExternalId: t.sourceExternalId,
+                          notes: t.notes,
+                        });
+                        return (
+                          <>
+                            {u && (
+                              <a
+                                href={u}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="ml-auto text-sky-600 dark:text-sky-400 hover:underline"
+                              >
+                                manaba ↗
+                              </a>
+                            )}
+                            <Link
+                              href={`/today?date=${jstYmd(t.dueAt)}`}
+                              className={`${u ? "" : "ml-auto"} text-sky-600 dark:text-sky-400 hover:underline`}
+                            >
+                              その日を開く →
+                            </Link>
+                          </>
+                        );
+                      })()}
                     </div>
                     <p
                       className={`mt-1 text-sm font-medium ${t.status === "DONE" ? "line-through" : ""}`}

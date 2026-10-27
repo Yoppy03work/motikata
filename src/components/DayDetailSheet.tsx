@@ -6,6 +6,7 @@ import { formatInTimeZone } from "date-fns-tz";
 import { ja } from "date-fns/locale/ja";
 import Link from "next/link";
 import { APP_TZ } from "@/lib/tz";
+import { extractManabaUrl } from "@/lib/manabaUrl";
 import { TaskForm } from "./TaskForm";
 
 type Instance = {
@@ -18,6 +19,7 @@ type Instance = {
   priority: "LOW" | "MID" | "HIGH";
   status: "OPEN" | "DONE" | "SKIPPED";
   source: string;
+  sourceExternalId: string | null;
   checklist: { id: number; label: string; checkedAt: string | null; orderIdx: number }[];
   tags: { tag: { id: number; name: string; color: string | null } }[];
 };
@@ -204,26 +206,61 @@ function Group({
         </h3>
       )}
       <ul className="space-y-1.5">
-        {items.map((it) => (
-          <li
-            key={it.id}
-            className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 p-2.5"
-          >
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-600 dark:text-slate-400">
-                {formatInTimeZone(new Date(it.dueAt), APP_TZ, "HH:mm")}
-              </span>
-              <span className={`truncate text-sm ${strike ? "line-through" : ""}`}>
-                {it.title}
-              </span>
-              {it.itemType === "TASK" && !it.required && (
-                <span className="ml-auto rounded-sm bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-600 dark:text-slate-400">
-                  任意
+        {items.map((it) => {
+          const manabaUrl = extractManabaUrl({
+            source: it.source,
+            sourceExternalId: it.sourceExternalId,
+            notes: it.notes,
+          });
+          return (
+            <li
+              key={it.id}
+              className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 p-2.5"
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-600 dark:text-slate-400">
+                  {formatInTimeZone(new Date(it.dueAt), APP_TZ, "HH:mm")}
                 </span>
-              )}
-            </div>
-          </li>
-        ))}
+                <span className={`truncate text-sm ${strike ? "line-through" : ""}`}>
+                  {it.title}
+                </span>
+                {it.itemType === "TASK" && !it.required && (
+                  <span className="ml-auto rounded-sm bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-600 dark:text-slate-400">
+                    任意
+                  </span>
+                )}
+                {manabaUrl && (
+                  <a
+                    href={manabaUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    aria-label="manaba で課題ページを開く"
+                    title="manaba で開く"
+                    className={`${it.itemType === "TASK" && !it.required ? "" : "ml-auto"} touch-manipulation rounded-sm p-1 text-sky-600 dark:text-sky-400 hover:bg-sky-500/10`}
+                  >
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                      <polyline points="15 3 21 3 21 9" />
+                      <line x1="10" y1="14" x2="21" y2="3" />
+                    </svg>
+                    <span className="sr-only">manaba で開く</span>
+                  </a>
+                )}
+              </div>
+            </li>
+          );
+        })}
       </ul>
     </div>
   );
