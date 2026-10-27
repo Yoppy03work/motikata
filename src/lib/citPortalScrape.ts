@@ -21,6 +21,7 @@
 import * as cheerio from "cheerio";
 import type { AnyNode, Element } from "domhandler";
 import { TOTP } from "otpauth";
+import { isTrustedSubmitTarget } from "./scrapeGuard";
 
 export type CitPortalClass = {
   // 月=1, 火=2, 水=3, 木=4, 金=5, 土=6
@@ -56,6 +57,10 @@ export class CitPortalError extends Error {
 }
 
 const DEFAULT_BASE = "https://portal.chibatech.ac.jp";
+
+function resolveBase(): string {
+  return (process.env.CIT_PORTAL_BASE_URL ?? DEFAULT_BASE).replace(/\/$/, "");
+}
 const TIMETABLE_PATH = "/uprx/up/bs/bsa001/Bsa00101.xhtml";
 const UA = "Mozilla/5.0 (mochikata-reminder) Node fetch (Personal use)";
 const DEBUG = process.env.CIT_PORTAL_DEBUG === "1";
@@ -121,6 +126,14 @@ async function portalFetch(
 
   for (let i = 0; i < maxRedirects; i++) {
     const u = new URL(currentUrl);
+    // ボディ付き (ID/パスワード・OTP・SAMLResponse の POST と、その 307/308 追従) は
+    // ポータルと同じ組織のホスト (IdP の sso.* を含む) にしか送らない。
+    if (
+      currentInit.body != null &&
+      !isTrustedSubmitTarget(currentUrl, resolveBase(), { allowSiblingHosts: true })
+    ) {
+      throw new CitPortalError(`認証情報の送信先が許可外のホストです: ${u.origin}`, "login");
+    }
     const headers = new Headers(currentInit.headers);
     headers.set("User-Agent", UA);
     if (!headers.has("Accept")) {
@@ -1059,10 +1072,7 @@ export async function fetchCitPortalTimetable(
   totpSecret: string,
   totpDeviceName: string | null = null,
 ): Promise<CitPortalClass[]> {
-  const baseUrl = (process.env.CIT_PORTAL_BASE_URL ?? DEFAULT_BASE).replace(
-    /\/$/,
-    "",
-  );
+  const baseUrl = resolveBase();
   if (!username || !password || !totpSecret) {
     throw new CitPortalError(
       "認証情報(ユーザーID/パスワード/TOTPシークレット)が空です",
