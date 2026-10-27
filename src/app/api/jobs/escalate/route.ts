@@ -10,7 +10,7 @@
 // JOBS_TOKEN 認証。worker cron が毎朝 7:00 JST に叩く想定。
 
 import { NextResponse } from "next/server";
-import { Prisma } from "@prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { requireJobsToken } from "@/lib/jobsAuth";
 

@@ -35,7 +35,7 @@
 //
 // 戻り値: 新規に作成した TaskInstance の件数。
 
-import type { Prisma, PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@/generated/prisma/client";
 
 export type MaterializableAcademicEvent = {
   title: string;

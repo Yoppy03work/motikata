@@ -8,7 +8,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { TaskForm } from "./TaskForm";
-import { isValidYmd } from "@/lib/week";
+import { isValidYmd } from "@/lib/ymd";
 
 const HIDDEN_PREFIXES = ["/settings", "/memo", "/classes", "/templates", "/login"];
 

@@ -28,7 +28,7 @@ import {
   resolveGoogleCalendarColor,
   resolveGoogleEventColor,
 } from "./googleColors";
-import type { GoogleCalendar } from "@prisma/client";
+import type { GoogleCalendar } from "@/generated/prisma/client";
 
 const EVENTS_API_BASE = "https://www.googleapis.com/calendar/v3/calendars";
 const FULL_SYNC_LOOKBACK_DAYS = 30;

@@ -9,7 +9,7 @@
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "@/lib/db";
 import { parseTimetableHtml } from "@/lib/citPortalScrape";
 
 const SAMPLE = resolve(process.cwd(), "tmp/timetable-sample.html");
@@ -19,7 +19,6 @@ async function main() {
   const classes = parseTimetableHtml(html);
   console.log(`parsed ${classes.length} entries`);
 
-  const prisma = new PrismaClient();
   try {
     await prisma.$transaction(async (tx) => {
       const existing = await tx.classSchedule.findMany({ select: { id: true } });
