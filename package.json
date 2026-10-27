@@ -62,5 +62,14 @@
   "overrides": {
     "postcss": "^8.5.12",
     "uuid": "^14.0.0"
+  },
+  "allowScripts": {
+    "argon2@0.41.1": true,
+    "esbuild@0.28.2": true,
+    "prisma@6.12.0": true,
+    "@prisma/engines@6.12.0": true,
+    "@prisma/client@6.19.3": true,
+    "unrs-resolver@1.12.2": true,
+    "fsevents@2.3.3": true
   }
 }

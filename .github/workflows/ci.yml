@@ -1,8 +1,7 @@
 name: CI
 
 # PR ごと + develop / main への push で tsc / lint / vitest を実行する。
-# Dockerfile は node:20-alpine だが、Vitest / tsc は新しい Node で動くため
-# CI も node 20 で揃える。
+# Dockerfile (node:24-alpine) と Node のメジャーを揃える。
 on:
   pull_request:
     branches: [develop, main]
@@ -26,8 +25,8 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          # Dockerfile に揃える (node:20-alpine)
-          node-version: '20'
+          # Dockerfile に揃える (node:24-alpine)
+          node-version: '24'
           # 公式 cache (npm の lockfile が変わったら invalidate)
           cache: 'npm'
 
