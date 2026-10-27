@@ -8,7 +8,7 @@
 // 5. state Cookie を消して /settings に redirect。
 
 import { NextResponse, type NextRequest } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, isSessionValid } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { encryptGoogleRefreshToken } from "@/lib/googleCrypto";
 import {
@@ -34,7 +34,7 @@ function redirectToSettings(message: string, isError: boolean): NextResponse {
 
 export async function GET(req: NextRequest) {
   const session = await getSession();
-  if (!session.authed) {
+  if (!(await isSessionValid(session))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

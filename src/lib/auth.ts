@@ -12,6 +12,19 @@ export async function getSession() {
   return getIronSession<SessionData>(cookieStore, sessionOptions);
 }
 
+/**
+ * Cookie が復号できるだけでなく、PIN 変更などで失効していないかを DB と照合する。
+ * iron-session は中身を Cookie 自体に持つため、サーバ側で失効させる手段がこれしかない。
+ */
+export async function isSessionValid(session: SessionData): Promise<boolean> {
+  if (!session.authed || session.userId === undefined) return false;
+  const user = await prisma.appUser.findUnique({
+    where: { id: session.userId },
+    select: { sessionVersion: true },
+  });
+  return !!user && user.sessionVersion === (session.sv ?? 0);
+}
+
 export async function ensureAppUser(): Promise<void> {
   const exists = await prisma.appUser.findFirst({ select: { id: true } });
   if (exists) return;
@@ -34,22 +47,34 @@ export async function ensureAppUser(): Promise<void> {
   console.log("[auth] AppUser を初期化しました — INITIAL_PIN を /settings から変更してください");
 }
 
-export async function verifyPin(pin: string): Promise<{ ok: boolean; userId?: number }> {
+export async function verifyPin(
+  pin: string,
+): Promise<{ ok: boolean; userId?: number; sessionVersion?: number }> {
   const user = await prisma.appUser.findFirst({ orderBy: { id: "asc" } });
   if (!user) return { ok: false };
   const ok = await argon2.verify(user.pinHash, pin);
-  return ok ? { ok: true, userId: user.id } : { ok: false };
+  return ok
+    ? { ok: true, userId: user.id, sessionVersion: user.sessionVersion }
+    : { ok: false };
 }
 
-export async function changePin(currentPin: string, newPin: string): Promise<boolean> {
-  if (!/^\d{4,8}$/.test(newPin)) return false;
+/** 成功時は新しい sessionVersion を返す(他端末のセッションはこれで失効する)。 */
+export async function changePin(
+  currentPin: string,
+  newPin: string,
+): Promise<{ ok: false } | { ok: true; sessionVersion: number }> {
+  if (!/^\d{4,8}$/.test(newPin)) return { ok: false };
   const user = await prisma.appUser.findFirst({ orderBy: { id: "asc" } });
-  if (!user) return false;
+  if (!user) return { ok: false };
   const ok = await argon2.verify(user.pinHash, currentPin);
-  if (!ok) return false;
+  if (!ok) return { ok: false };
   const pinHash = await argon2.hash(newPin);
-  await prisma.appUser.update({ where: { id: user.id }, data: { pinHash } });
-  return true;
+  const updated = await prisma.appUser.update({
+    where: { id: user.id },
+    data: { pinHash, sessionVersion: { increment: 1 } },
+    select: { sessionVersion: true },
+  });
+  return { ok: true, sessionVersion: updated.sessionVersion };
 }
 
 /**
@@ -57,7 +82,7 @@ export async function changePin(currentPin: string, newPin: string): Promise<boo
  */
 export async function requireAuthOrRedirect(): Promise<SessionData> {
   const session = await getSession();
-  if (!session.authed) {
+  if (!(await isSessionValid(session))) {
     redirect("/login");
   }
   return session;

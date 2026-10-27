@@ -12,7 +12,7 @@
 // チェック + Origin/Referer 検証が掛かるので、ここでは getSession のみ。
 
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, isSessionValid } from "@/lib/auth";
 import {
   buildAuthorizeUrl,
   GOOGLE_OAUTH_STATE_COOKIE,
@@ -24,7 +24,7 @@ const STATE_COOKIE_MAX_AGE = 10 * 60; // seconds
 
 export async function GET() {
   const session = await getSession();
-  if (!session.authed) {
+  if (!(await isSessionValid(session))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   let authorizeUrl: string;

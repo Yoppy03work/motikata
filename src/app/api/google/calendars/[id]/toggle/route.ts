@@ -5,7 +5,7 @@
 // (= モチカタ上に残った既存 TaskInstance は維持される; 必要なら別ボタンで一括削除する)
 
 import { NextResponse, type NextRequest } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, isSessionValid } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
 export async function POST(
@@ -13,7 +13,7 @@ export async function POST(
   ctx: { params: Promise<{ id: string }> },
 ) {
   const session = await getSession();
-  if (!session.authed) {
+  if (!(await isSessionValid(session))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const { id } = await ctx.params;

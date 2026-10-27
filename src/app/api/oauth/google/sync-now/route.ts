@@ -3,12 +3,12 @@
 // 認可必須 (セッションログイン中)。
 
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, isSessionValid } from "@/lib/auth";
 import { syncGoogleCalendar } from "@/lib/googleCalendarSync";
 
 export async function POST() {
   const session = await getSession();
-  if (!session.authed) {
+  if (!(await isSessionValid(session))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const result = await syncGoogleCalendar();
