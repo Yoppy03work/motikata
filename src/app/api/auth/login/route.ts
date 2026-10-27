@@ -6,7 +6,10 @@ import {
   ANON_COOKIE_MAX_AGE,
   ANON_COOKIE_NAME,
   checkLockout,
+  CLIENT_POLICY,
   clientKey,
+  GLOBAL_KEY,
+  GLOBAL_POLICY,
   recordFailure,
   recordSuccess,
 } from "@/lib/rateLimit";
@@ -54,30 +57,47 @@ export async function POST(req: Request) {
     return res;
   };
 
-  const lock = await checkLockout(key);
-  if (!lock.allowed) {
-    return finalize(
+  const tooMany = (retryAfterSec: number) =>
+    finalize(
       NextResponse.json(
-        {
-          error: `試行回数が多すぎます。${Math.ceil((lock.retryAfterSec ?? 0) / 60)}分後にお試しください`,
-        },
-        { status: 429, headers: { "Retry-After": String(lock.retryAfterSec ?? 60) } },
+        { error: `試行回数が多すぎます。${Math.ceil(retryAfterSec / 60)}分後にお試しください` },
+        { status: 429, headers: { "Retry-After": String(retryAfterSec) } },
       ),
     );
-  }
+
+  // 全体ロックを先に見る。クライアント単位の bucket は UA を変えるだけで
+  // 回避できるため、こちらが総当たりに対する本当の上限になる。
+  const globalLock = await checkLockout(GLOBAL_KEY, GLOBAL_POLICY);
+  const lock = globalLock.allowed ? await checkLockout(key) : globalLock;
+  if (!lock.allowed) return tooMany(lock.retryAfterSec ?? 60);
 
   const parsed = PinLoginInput.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return finalize(NextResponse.json({ error: "PINが不正です" }, { status: 400 }));
   }
+
+  // PIN 検証の「前」に試行を失敗として原子的に数える(成功したら下でリセット)。
+  // 検証後に数えると、並行リクエストが全部 checkLockout を素通りしてから
+  // 一斉に verifyPin に到達し、上限を超えて試行できてしまう。
+  const [attempt, globalAttempt] = await Promise.all([
+    recordFailure(key),
+    recordFailure(GLOBAL_KEY, GLOBAL_POLICY),
+  ]);
+  if (
+    attempt.failures > CLIENT_POLICY.maxAttempts ||
+    globalAttempt.failures > GLOBAL_POLICY.maxAttempts
+  ) {
+    return tooMany(Math.max(attempt.retryAfterSec ?? 0, globalAttempt.retryAfterSec ?? 0) || 60);
+  }
+
   const result = await verifyPin(parsed.data.pin);
   if (!result.ok) {
-    const fail = await recordFailure(key);
-    if (fail.lockedOut) {
+    if (attempt.lockedOut || globalAttempt.lockedOut) {
+      const retryAfterSec = Math.max(attempt.retryAfterSec ?? 0, globalAttempt.retryAfterSec ?? 0);
       return finalize(
         NextResponse.json(
           {
-            error: `失敗回数が上限に達しました。${Math.ceil((fail.retryAfterSec ?? 0) / 60)}分間ロックされます`,
+            error: `失敗回数が上限に達しました。${Math.ceil(retryAfterSec / 60)}分間ロックされます`,
           },
           { status: 429 },
         ),
@@ -85,16 +105,17 @@ export async function POST(req: Request) {
     }
     return finalize(
       NextResponse.json(
-        { error: `PINが違います(残り${fail.remaining}回)` },
+        { error: `PINが違います(残り${attempt.remaining}回)` },
         { status: 401 },
       ),
     );
   }
 
-  await recordSuccess(key);
+  await Promise.all([recordSuccess(key), recordSuccess(GLOBAL_KEY)]);
   const session = await getSession();
   session.authed = true;
   session.userId = result.userId;
+  session.sv = result.sessionVersion;
   await session.save();
   return finalize(NextResponse.json({ ok: true }));
 }

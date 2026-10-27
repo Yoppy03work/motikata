@@ -5,20 +5,41 @@ import { createHash } from "node:crypto";
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 
-const MAX_ATTEMPTS = 5;
-const LOCKOUT_MS = 15 * 60_000;
-const WINDOW_MS = 30 * 60_000;
-const WINDOW_SEC = WINDOW_MS / 1000;
-const LOCKOUT_SEC = LOCKOUT_MS / 1000;
+export type LockoutPolicy = {
+  maxAttempts: number;
+  windowSec: number;
+  lockoutSec: number;
+};
 
-export async function checkLockout(key: string): Promise<{
+// クライアント単位(anon Cookie / IP + UA)の上限。
+export const CLIENT_POLICY: LockoutPolicy = {
+  maxAttempts: 5,
+  windowSec: 30 * 60,
+  lockoutSec: 15 * 60,
+};
+
+// クライアントを区別しない全体の上限。clientKey は Cookie を送らず UA を毎回
+// 変えるだけで別 bucket になるため、それだけでは PIN 総当たりを止められない。
+// 単一ユーザーのアプリなので、全体で失敗が重なったらログイン自体を止める。
+// (正規ユーザーもこの間はログインできないが、既存セッションには影響しない)
+export const GLOBAL_KEY = "global";
+export const GLOBAL_POLICY: LockoutPolicy = {
+  maxAttempts: 20,
+  windowSec: 30 * 60,
+  lockoutSec: 30 * 60,
+};
+
+export async function checkLockout(
+  key: string,
+  policy: LockoutPolicy = CLIENT_POLICY,
+): Promise<{
   allowed: boolean;
   retryAfterSec?: number;
   remaining: number;
 }> {
   const now = Date.now();
   const row = await prisma.loginAttempt.findUnique({ where: { key } });
-  if (!row) return { allowed: true, remaining: MAX_ATTEMPTS };
+  if (!row) return { allowed: true, remaining: policy.maxAttempts };
 
   if (row.lockoutUntil && row.lockoutUntil.getTime() > now) {
     return {
@@ -27,21 +48,26 @@ export async function checkLockout(key: string): Promise<{
       remaining: 0,
     };
   }
-  if (now - row.windowStart.getTime() > WINDOW_MS) {
+  if (now - row.windowStart.getTime() > policy.windowSec * 1000) {
     await prisma.loginAttempt.delete({ where: { key } }).catch(() => {});
-    return { allowed: true, remaining: MAX_ATTEMPTS };
+    return { allowed: true, remaining: policy.maxAttempts };
   }
-  return { allowed: true, remaining: Math.max(0, MAX_ATTEMPTS - row.failures) };
+  return { allowed: true, remaining: Math.max(0, policy.maxAttempts - row.failures) };
 }
 
 // 同一 key への並行 recordFailure を取りこぼさないため、INSERT ... ON CONFLICT
 // DO UPDATE で原子的にインクリメント+判定を行う。Postgres のロー単位ロックに
 // 任せることで、read-modify-write の race を排除する。
-export async function recordFailure(key: string): Promise<{
+export async function recordFailure(
+  key: string,
+  policy: LockoutPolicy = CLIENT_POLICY,
+): Promise<{
+  failures: number;
   lockedOut: boolean;
   retryAfterSec?: number;
   remaining: number;
 }> {
+  const { maxAttempts, windowSec, lockoutSec } = policy;
   const rows = await prisma.$queryRaw<
     Array<{ failures: number; lockoutUntil: Date | null }>
   >(Prisma.sql`
@@ -49,24 +75,24 @@ export async function recordFailure(key: string): Promise<{
     VALUES (${key}, 1, NOW(), NULL, NOW())
     ON CONFLICT ("key") DO UPDATE SET
       "failures" = CASE
-        WHEN NOW() - "LoginAttempt"."windowStart" > make_interval(secs => ${WINDOW_SEC})
+        WHEN NOW() - "LoginAttempt"."windowStart" > make_interval(secs => ${windowSec})
           THEN 1
         ELSE "LoginAttempt"."failures" + 1
       END,
       "windowStart" = CASE
-        WHEN NOW() - "LoginAttempt"."windowStart" > make_interval(secs => ${WINDOW_SEC})
+        WHEN NOW() - "LoginAttempt"."windowStart" > make_interval(secs => ${windowSec})
           THEN NOW()
         ELSE "LoginAttempt"."windowStart"
       END,
       "lockoutUntil" = CASE
         WHEN (
           CASE
-            WHEN NOW() - "LoginAttempt"."windowStart" > make_interval(secs => ${WINDOW_SEC})
+            WHEN NOW() - "LoginAttempt"."windowStart" > make_interval(secs => ${windowSec})
               THEN 1
             ELSE "LoginAttempt"."failures" + 1
           END
-        ) >= ${MAX_ATTEMPTS}
-          THEN NOW() + make_interval(secs => ${LOCKOUT_SEC})
+        ) >= ${maxAttempts}
+          THEN NOW() + make_interval(secs => ${lockoutSec})
         ELSE "LoginAttempt"."lockoutUntil"
       END,
       "updatedAt" = NOW()
@@ -77,12 +103,17 @@ export async function recordFailure(key: string): Promise<{
   const now = Date.now();
   if (row.lockoutUntil && row.lockoutUntil.getTime() > now) {
     return {
+      failures: row.failures,
       lockedOut: true,
       retryAfterSec: Math.ceil((row.lockoutUntil.getTime() - now) / 1000),
       remaining: 0,
     };
   }
-  return { lockedOut: false, remaining: Math.max(0, MAX_ATTEMPTS - row.failures) };
+  return {
+    failures: row.failures,
+    lockedOut: false,
+    remaining: Math.max(0, maxAttempts - row.failures),
+  };
 }
 
 export async function recordSuccess(key: string): Promise<void> {
