@@ -215,11 +215,11 @@ export function TimetableClient() {
   const [semester, setSemester] = useState<Semester>(() => semesterOfNow());
 
   // 今日の曜日(JST、月=1〜土=6 にマップ。日曜は 0 で対象外)
-  const todayDow = useMemo(() => {
+  const [todayDow] = useState(() => {
     const jst = new Date(Date.now() + 9 * 60 * 60 * 1000);
     const d = jst.getUTCDay(); // 0=日, 1=月, ..., 6=土
     return d === 0 ? 0 : d;
-  }, []);
+  });
 
   // 学期フィルタ済みアイテム。
   // 前期/後期 の2択。effectiveFrom が null のものは両方の学期に表示する

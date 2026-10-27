@@ -1,5 +1,5 @@
 // 内部 cron(worker)から叩くリマインダー配信エンドポイント。
-// JOBS_TOKEN 必須。middleware で /api/jobs/* は CSRF / セッション認証から除外済み。
+// JOBS_TOKEN 必須。proxy で /api/jobs/* は CSRF / セッション認証から除外済み。
 
 import { NextResponse } from "next/server";
 import { requireJobsToken } from "@/lib/jobsAuth";

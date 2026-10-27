@@ -8,7 +8,7 @@
 //   Path=/api/oauth/google/ (callback だけが読めばよい)
 //   maxAge = 10 min
 //
-// 認可必須(セッションログイン前提)。middleware で /api/ は session cookie
+// 認可必須(セッションログイン前提)。proxy で /api/ は session cookie
 // チェック + Origin/Referer 検証が掛かるので、ここでは getSession のみ。
 
 import { NextResponse } from "next/server";

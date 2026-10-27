@@ -1,11 +1,5 @@
-import { FlatCompat } from "@eslint/eslintrc";
-import { dirname } from "path";
-import { fileURLToPath } from "url";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-const compat = new FlatCompat({ baseDirectory: __dirname });
+import nextVitals from "eslint-config-next/core-web-vitals";
+import nextTs from "eslint-config-next/typescript";
 
 const config = [
   {
@@ -19,7 +13,16 @@ const config = [
       "tsconfig.tsbuildinfo",
     ],
   },
-  ...compat.extends("next/core-web-vitals", "next/typescript"),
+  ...nextVitals,
+  ...nextTs,
+  {
+    rules: {
+      // eslint-config-next 16 で追加された React Compiler 系ルール。
+      // 既存の「effect 内で fetch → setState」パターンが 18 箇所該当し、
+      // 動作上の不具合ではないため一旦 warn に落として段階的に直す。
+      "react-hooks/set-state-in-effect": "warn",
+    },
+  },
 ];
 
 export default config;

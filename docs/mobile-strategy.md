@@ -79,7 +79,7 @@
 ## 関連
 
 - 現状の認証: [src/lib/session.ts](../src/lib/session.ts), [src/lib/auth.ts](../src/lib/auth.ts)
-- CSRF Origin チェック: [src/lib/csrf.ts](../src/lib/csrf.ts), [src/middleware.ts](../src/middleware.ts)
+- CSRF Origin チェック: [src/lib/csrf.ts](../src/lib/csrf.ts), [src/proxy.ts](../src/proxy.ts)
 - Web Push 設定 (VAPID): `.env` の `VAPID_*`
 
 ## 保留: ルート検索 + 予定への移動時間追加
