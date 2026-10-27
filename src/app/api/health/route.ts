@@ -16,30 +16,36 @@
 // - lastSync が「期待時間」より古い場合の判定は呼び出し側 (uptime monitor 等) に
 //   委ねる方が柔軟なので、本 endpoint では値を返すだけ。
 // - 認証情報 (email 等) は返さない。
+// - lastSync は「どのサービスといつ連携しているか」が分かるため、ログイン済みか
+//   Authorization: Bearer <JOBS_TOKEN> 付きのリクエストにだけ返す (uptime monitor は
+//   ヘッダを付けて叩く)。DB エラーの詳細はサーバログにだけ出す。
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { getSession, isSessionValid } from "@/lib/auth";
+import { hasJobsToken } from "@/lib/jobsAuth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const startedAt = Date.now();
 
-export async function GET() {
+export async function GET(req: Request) {
   let dbOk = false;
-  let dbError: string | undefined;
   try {
     // SELECT 1 相当の軽量チェック。$queryRaw は文字列 escape 不要なリテラル SQL。
     await prisma.$queryRaw`SELECT 1`;
     dbOk = true;
   } catch (e) {
-    dbError = e instanceof Error ? e.message : "unknown";
+    console.error("[health] db check failed:", e instanceof Error ? e.message : e);
   }
+
+  const detailed = dbOk && (hasJobsToken(req) || (await isSessionValid(await getSession())));
 
   let manabaLast: Date | null = null;
   let citPortalLast: Date | null = null;
   let googleLast: Date | null = null;
-  if (dbOk) {
+  if (detailed) {
     try {
       const [m, c, g] = await Promise.all([
         prisma.manabaCredential.findFirst({
@@ -66,12 +72,15 @@ export async function GET() {
   const body = {
     ok: dbOk,
     db: dbOk ? "ok" : "error",
-    ...(dbError ? { dbError: dbError.slice(0, 200) } : {}),
-    lastSync: {
-      manaba: manabaLast?.toISOString() ?? null,
-      citPortal: citPortalLast?.toISOString() ?? null,
-      google: googleLast?.toISOString() ?? null,
-    },
+    ...(detailed
+      ? {
+          lastSync: {
+            manaba: manabaLast?.toISOString() ?? null,
+            citPortal: citPortalLast?.toISOString() ?? null,
+            google: googleLast?.toISOString() ?? null,
+          },
+        }
+      : {}),
     uptimeSec: Math.floor((Date.now() - startedAt) / 1000),
   };
   return NextResponse.json(body, { status: dbOk ? 200 : 503 });
