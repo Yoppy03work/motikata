@@ -59,7 +59,7 @@ export function CompletionModal({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-[fadeIn_120ms_ease-out]"
+      className="fixed inset-0 z-60 flex items-center justify-center bg-black/40 backdrop-blur-xs animate-[fadeIn_120ms_ease-out]"
       onClick={onClose}
       role="dialog"
       aria-live="polite"
@@ -93,7 +93,7 @@ export function CompletionModal({
         <p className="text-xl font-bold text-slate-900 dark:text-slate-100">完了!</p>
         <p className="mt-1 text-xs text-sky-600 dark:text-sky-300">{phrase}</p>
 
-        <p className="mt-3 line-clamp-2 break-words text-center text-sm text-slate-700 dark:text-slate-300">
+        <p className="mt-3 line-clamp-2 wrap-break-word text-center text-sm text-slate-700 dark:text-slate-300">
           {title}
         </p>
 

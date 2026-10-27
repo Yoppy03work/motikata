@@ -95,7 +95,7 @@ export function DayDetailSheet({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-xs"
       onClick={onClose}
     >
       <div
@@ -217,7 +217,7 @@ function Group({
                 {it.title}
               </span>
               {it.itemType === "TASK" && !it.required && (
-                <span className="ml-auto rounded bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-600 dark:text-slate-400">
+                <span className="ml-auto rounded-sm bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-600 dark:text-slate-400">
                   任意
                 </span>
               )}

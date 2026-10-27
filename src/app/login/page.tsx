@@ -62,7 +62,7 @@ function LoginForm() {
         autoComplete="off"
         value={pin}
         onChange={(e) => setPin(e.target.value)}
-        className="w-full rounded-xl bg-slate-200 dark:bg-slate-800 px-4 py-3 text-center text-2xl tracking-[0.4em] outline-none focus:ring-2 focus:ring-sky-500"
+        className="w-full rounded-xl bg-slate-200 dark:bg-slate-800 px-4 py-3 text-center text-2xl tracking-[0.4em] outline-hidden focus:ring-2 focus:ring-sky-500"
         placeholder="••••"
         maxLength={8}
         autoFocus

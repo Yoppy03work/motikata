@@ -30,7 +30,7 @@ const items: Item[] = [
 export function BottomNav() {
   const pathname = usePathname();
   return (
-    <nav className="fixed bottom-0 inset-x-0 border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-950/95 backdrop-blur pb-[env(safe-area-inset-bottom)]">
+    <nav className="fixed bottom-0 inset-x-0 border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-950/95 backdrop-blur-sm pb-[env(safe-area-inset-bottom)]">
       <ul className="mx-auto grid max-w-md grid-cols-6">
         {items.map(({ href, label, Icon }) => {
           const active = pathname === href || pathname.startsWith(href + "/");

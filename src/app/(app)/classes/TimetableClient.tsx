@@ -300,11 +300,11 @@ export function TimetableClient() {
       {/* 凡例 */}
       <div className="mb-2 flex flex-wrap items-center gap-3 text-xs text-slate-700 dark:text-slate-300">
         <span className="inline-flex items-center gap-1.5">
-          <span className="inline-block h-3 w-3 rounded-sm bg-sky-200 dark:bg-sky-500/40" />
+          <span className="inline-block h-3 w-3 rounded-xs bg-sky-200 dark:bg-sky-500/40" />
           授業
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <span className="inline-block h-3 w-3 rounded-sm border border-dashed border-slate-500 dark:border-slate-500" />
+          <span className="inline-block h-3 w-3 rounded-xs border border-dashed border-slate-500 dark:border-slate-500" />
           空き(タップで追加)
         </span>
       </div>
@@ -625,7 +625,7 @@ function EditModal({
               onChange={(e) => update({ courseName: e.target.value })}
               disabled={pending}
               autoFocus
-              className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-sky-500"
+              className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm outline-hidden focus:ring-2 focus:ring-sky-500"
             />
           </Field>
           <div className="flex gap-2">
@@ -634,7 +634,7 @@ function EditModal({
                 value={form.startPeriod}
                 onChange={(e) => update({ startPeriod: Number(e.target.value) })}
                 disabled={pending}
-                className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-sky-500"
+                className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm outline-hidden focus:ring-2 focus:ring-sky-500"
               >
                 {PERIODS.map((p) => (
                   <option key={p.value} value={p.value}>
@@ -648,7 +648,7 @@ function EditModal({
                 value={form.endPeriod}
                 onChange={(e) => update({ endPeriod: Number(e.target.value) })}
                 disabled={pending}
-                className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-sky-500"
+                className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm outline-hidden focus:ring-2 focus:ring-sky-500"
               >
                 {PERIODS.filter((p) => p.value >= form.startPeriod).map((p) => (
                   <option key={p.value} value={p.value}>
@@ -665,7 +665,7 @@ function EditModal({
               onChange={(e) => update({ classroom: e.target.value })}
               disabled={pending}
               placeholder="例: 1号館 211"
-              className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-sky-500"
+              className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm outline-hidden focus:ring-2 focus:ring-sky-500"
             />
           </Field>
           <Field label="担当教員">
@@ -674,7 +674,7 @@ function EditModal({
               value={form.teacher}
               onChange={(e) => update({ teacher: e.target.value })}
               disabled={pending}
-              className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-sky-500"
+              className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm outline-hidden focus:ring-2 focus:ring-sky-500"
             />
           </Field>
           {/* カード色: 20色のプリセット + 自動。null = 自動配色(科目名ハッシュ)。 */}
@@ -762,7 +762,7 @@ function EditModal({
                       }}
                       disabled={pending}
                       placeholder="例: 教科書 / 関数電卓 / レポート用紙"
-                      className="flex-1 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-sky-500"
+                      className="flex-1 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1 text-sm outline-hidden focus:ring-2 focus:ring-sky-500"
                     />
                     <button
                       type="button"
@@ -914,7 +914,7 @@ function ClassCell({
         onPointerCancel={handlePointerUp}
         onPointerMove={handlePointerMove}
         onContextMenu={(e) => e.preventDefault()}
-        className="relative flex h-full w-full overflow-hidden rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-sky-600 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-slate-950 motion-safe:transition motion-safe:active:scale-[0.98] border border-dashed border-slate-400 dark:border-slate-600 hover:border-sky-600 dark:hover:border-sky-400 hover:bg-sky-50 dark:hover:bg-sky-500/10"
+        className="relative flex h-full w-full overflow-hidden rounded-md text-left outline-hidden focus-visible:ring-2 focus-visible:ring-sky-600 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-slate-950 motion-safe:transition motion-safe:active:scale-[0.98] border border-dashed border-slate-400 dark:border-slate-600 hover:border-sky-600 dark:hover:border-sky-400 hover:bg-sky-50 dark:hover:bg-sky-500/10"
         style={{ minHeight: `${span * 3.5}rem` }}
       >
         <div className="flex h-full w-full items-center justify-center">
@@ -950,7 +950,7 @@ function ClassCell({
       onPointerCancel={handlePointerUp}
       onPointerMove={handlePointerMove}
       onContextMenu={(e) => e.preventDefault()}
-      className={`relative flex h-full w-full overflow-hidden rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-sky-600 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-slate-950 motion-safe:transition motion-safe:active:scale-[0.98] ring-1 ring-inset shadow-sm hover:shadow-md select-none ${
+      className={`relative flex h-full w-full overflow-hidden rounded-md text-left outline-hidden focus-visible:ring-2 focus-visible:ring-sky-600 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-slate-950 motion-safe:transition motion-safe:active:scale-[0.98] ring-1 ring-inset shadow-xs hover:shadow-md select-none ${
         palette ? `${palette.card} ${palette.hover}` : ""
       }`}
       style={{
@@ -1049,7 +1049,7 @@ function DetailsModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby="class-details-title"
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm p-0 sm:items-center sm:p-4"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-xs p-0 sm:items-center sm:p-4"
       onClick={onClose}
     >
       <div

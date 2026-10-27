@@ -219,7 +219,7 @@ export function AcademicImport() {
                     type="button"
                     onClick={() => void onClearYear(y.academicYear)}
                     disabled={pending}
-                    className="rounded border border-rose-500/30 bg-rose-500/5 px-2 py-0.5 text-[10px] text-rose-600 dark:text-rose-300 disabled:opacity-50"
+                    className="rounded-sm border border-rose-500/30 bg-rose-500/5 px-2 py-0.5 text-[10px] text-rose-600 dark:text-rose-300 disabled:opacity-50"
                   >
                     削除
                   </button>

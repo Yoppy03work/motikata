@@ -222,7 +222,7 @@ export function GoogleCalendarSettings() {
                       className="h-3.5 w-3.5"
                     />
                     <span
-                      className="inline-block h-3 w-3 shrink-0 rounded-sm"
+                      className="inline-block h-3 w-3 shrink-0 rounded-xs"
                       style={{ background: c.colorHex ?? "#94a3b8" }}
                       aria-hidden="true"
                     />
@@ -236,7 +236,7 @@ export function GoogleCalendarSettings() {
                       {/* Phase 14d: 読み取り専用バッジ */}
                       {c.accessRole === "reader" ||
                       c.accessRole === "freeBusyReader" ? (
-                        <span className="ml-1 rounded-sm bg-slate-300 px-1 text-[10px] text-slate-700 dark:bg-slate-700 dark:text-slate-300">
+                        <span className="ml-1 rounded-xs bg-slate-300 px-1 text-[10px] text-slate-700 dark:bg-slate-700 dark:text-slate-300">
                           読み取り専用
                         </span>
                       ) : null}
