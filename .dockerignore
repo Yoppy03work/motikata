@@ -1,0 +1,29 @@
+# build context に載せないもの。
+# COPY . . がそのまま取り込むので、秘密情報・個人データ・ホスト固有の成果物は必ずここで除外する。
+
+# 秘密情報 (.env.example だけは参照用に残す)
+.env
+.env.*
+!.env.example
+
+# 開発用の機密サンプル (HAR、パスワード入りログ、スクレイプ HTML/PDF) と DB ダンプ
+tmp/
+backups/
+*.sql.gz
+
+# ホスト (macOS) でビルドされた依存と成果物。コンテナ内で入れ直す
+node_modules/
+.next/
+src/generated/
+tsconfig.tsbuildinfo
+coverage/
+
+# その他
+.git/
+.github/
+.tmp/
+.claude/
+.vscode/
+.idea/
+.DS_Store
+*.log

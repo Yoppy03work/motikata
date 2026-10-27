@@ -20,6 +20,9 @@ COPY --from=build /app/.next ./.next
 COPY --from=build /app/public ./public
 COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/prisma.config.ts ./
+# next start は .next/cache に書き込むので node ユーザーに渡してから root を降りる
+RUN chown -R node:node /app/.next
+USER node
 EXPOSE 3000
 CMD ["sh", "-c", "npx prisma migrate deploy && npm run start"]
 
@@ -33,4 +36,5 @@ COPY --from=build /app/prisma.config.ts ./
 COPY --from=build /app/worker ./worker
 COPY --from=build /app/src ./src
 COPY --from=build /app/tsconfig.json ./
+USER node
 CMD ["npm", "run", "worker:start"]
