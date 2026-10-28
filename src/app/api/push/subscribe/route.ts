@@ -5,11 +5,12 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireAuthApi } from "@/lib/authGuard";
+import { isAllowedPushEndpoint } from "@/lib/pushEndpoint";
 
 export const dynamic = "force-dynamic";
 
 const Body = z.object({
-  endpoint: z.string().url().max(2000),
+  endpoint: z.string().max(2000).refine(isAllowedPushEndpoint, "unsupported push service"),
   keys: z.object({
     p256dh: z.string().min(1).max(500),
     auth: z.string().min(1).max(200),

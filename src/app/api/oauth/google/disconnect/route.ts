@@ -3,14 +3,14 @@
 // 既に存在しなければ 200 (idempotent)。
 
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, isSessionValid } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { decryptGoogleRefreshToken } from "@/lib/googleCrypto";
 import { revokeGoogleToken } from "@/lib/googleOAuth";
 
 export async function POST() {
   const session = await getSession();
-  if (!session.authed) {
+  if (!(await isSessionValid(session))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const cred = await prisma.googleCredential.findUnique({

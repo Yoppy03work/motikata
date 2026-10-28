@@ -3,7 +3,9 @@
 //
 // セキュリティ:
 //   - セッション認証必須
-//   - シークレット自体は返さない(コードと残り時間のみ)
+//   - 本番では CIT_PORTAL_DEBUG=1 のときだけ有効(セッションを奪われると MFA コードを
+//     取り放題になるため、普段は閉じておく)
+//   - シークレットは一部も返さない(文字数のみ)
 //   - レスポンスは Cache-Control: no-store
 
 import { NextResponse } from "next/server";
@@ -20,6 +22,12 @@ const BASE32_RE = /^[A-Z2-7]+=*$/;
 export async function POST() {
   const guard = await requireAuthApi();
   if (guard) return guard;
+  if (process.env.NODE_ENV === "production" && process.env.CIT_PORTAL_DEBUG !== "1") {
+    return NextResponse.json(
+      { error: "OTP生成テストは無効です(サーバの CIT_PORTAL_DEBUG=1 で有効化)" },
+      { status: 404 },
+    );
+  }
   const cred = await prisma.citPortalCredential.findFirst();
   if (!cred) {
     return NextResponse.json(
@@ -57,10 +65,6 @@ export async function POST() {
   }
   const now = Math.floor(Date.now() / 1000);
   const remaining = 30 - (now % 30);
-  const secretMasked =
-    secret.length > 8
-      ? `${secret.slice(0, 4)}…${secret.slice(-4)} (${secret.length}文字)`
-      : `(短い: ${secret.length}文字)`;
   return new NextResponse(
     JSON.stringify({
       ok: !genError,
@@ -68,7 +72,7 @@ export async function POST() {
       codePrev,
       codeNext,
       remainingSec: remaining,
-      secretMasked,
+      secretLength: secret.length,
       validBase32,
       serverTime: new Date().toISOString(),
       genError,

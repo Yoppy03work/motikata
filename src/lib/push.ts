@@ -4,6 +4,7 @@
 
 import webpush from "web-push";
 import { prisma } from "@/lib/db";
+import { isAllowedPushEndpoint } from "@/lib/pushEndpoint";
 
 let configured = false;
 function configureIfNeeded(): boolean {
@@ -50,6 +51,12 @@ export async function sendPushToAll(payload: PushPayload): Promise<PushSendResul
   let failed = 0;
 
   for (const s of subs) {
+    // 検査導入前に保存された不正な endpoint には送らず、掃除する
+    if (!isAllowedPushEndpoint(s.endpoint)) {
+      await prisma.pushSubscription.delete({ where: { endpoint: s.endpoint } }).catch(() => {});
+      removed++;
+      continue;
+    }
     try {
       await webpush.sendNotification(
         {

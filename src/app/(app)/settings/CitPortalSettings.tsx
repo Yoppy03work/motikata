@@ -140,7 +140,7 @@ export function CitPortalSettings() {
       if (!res.ok) {
         setError(
           body.genError
-            ? `TOTP生成失敗: ${body.genError}\nシークレット: ${body.secretMasked ?? "?"}\nBASE32妥当性: ${body.validBase32 ? "OK" : "NG"}`
+            ? `TOTP生成失敗: ${body.genError}\nシークレット: ${body.secretLength ?? "?"}文字\nBASE32妥当性: ${body.validBase32 ? "OK" : "NG"}`
             : (body.error ?? `OTPテスト失敗 (${res.status})`),
         );
         return;
@@ -148,7 +148,7 @@ export function CitPortalSettings() {
       setMessage(
         `現在のOTP: ${body.code} (残り${body.remainingSec}秒)\n` +
           `30秒前: ${body.codePrev} / 30秒後: ${body.codeNext}\n` +
-          `シークレット: ${body.secretMasked} / BASE32: ${body.validBase32 ? "有効" : "無効"}\n` +
+          `シークレット: ${body.secretLength}文字 / BASE32: ${body.validBase32 ? "有効" : "無効"}\n` +
           `サーバ時刻: ${body.serverTime}\n` +
           `Authenticatorアプリの6桁と一致するか確認してください`,
       );

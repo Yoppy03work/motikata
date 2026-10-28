@@ -18,6 +18,7 @@
 //   - MANABA_BASE_URL: 既定 "https://cm.it-chiba.ac.jp"
 
 import * as cheerio from "cheerio";
+import { isTrustedSubmitTarget } from "./scrapeGuard";
 
 export type ManabaAssignment = {
   course: string;
@@ -37,6 +38,13 @@ export class ManabaError extends Error {
 }
 
 const DEFAULT_BASE = "https://cit.manaba.jp";
+
+function resolveBase(): string {
+  // 空文字も「未指定」として扱う(docker compose で MANABA_BASE_URL=${...:-} と
+  // 空展開した場合に DEFAULT_BASE にフォールバックさせるため)。
+  const raw = process.env.MANABA_BASE_URL;
+  return (raw && raw.trim() !== "" ? raw : DEFAULT_BASE).replace(/\/$/, "");
+}
 const UA =
   "Mozilla/5.0 (mochikata-reminder) Node fetch (Personal use)";
 
@@ -100,6 +108,11 @@ async function manabaFetch(
     );
   }
   const u = new URL(url);
+  // ボディ付き(ログイン POST とその 307/308 追従)は manaba 本体にしか送らない。
+  // manaba のログインは同一ホストで完結するので、サブドメインも許可しない。
+  if (init?.body != null && !isTrustedSubmitTarget(url, resolveBase(), { allowSiblingHosts: false })) {
+    throw new ManabaError(`認証情報の送信先が manaba ではありません: ${u.origin}`, "login");
+  }
   const headers = new Headers(init?.headers);
   headers.set("User-Agent", UA);
   headers.set("Accept", "text/html,application/xhtml+xml");
@@ -357,10 +370,7 @@ export async function fetchManabaAssignments(
   username: string,
   password: string,
 ): Promise<ManabaAssignment[]> {
-  // 空文字も「未指定」として扱う(docker compose で MANABA_BASE_URL=${...:-} と
-  // 空展開した場合に DEFAULT_BASE にフォールバックさせるため)。
-  const raw = process.env.MANABA_BASE_URL;
-  const base = (raw && raw.trim() !== "" ? raw : DEFAULT_BASE).replace(/\/$/, "");
+  const base = resolveBase();
   if (!username || !password) throw new ManabaError("認証情報が空です", "config");
   const jar: HostCookieJar = new Map();
 

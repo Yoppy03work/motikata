@@ -8,10 +8,13 @@ datasource db {
 }
 
 model AppUser {
-  id        Int      @id @default(autoincrement())
-  pinHash   String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id             Int      @id @default(autoincrement())
+  pinHash        String
+  // セッション Cookie に同じ値を持たせ、不一致なら無効扱いにする。
+  // PIN 変更時にインクリメントして、他端末に残ったセッションを失効させる。
+  sessionVersion Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }
 
 model Tag {
