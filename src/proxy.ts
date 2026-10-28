@@ -11,7 +11,7 @@ const PUBLIC_PATHS = [
   "/api/health",
 ];
 
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   // 状態変更系 API は Origin/Referer が自サイトであることを必須にする(CSRF 防御)。

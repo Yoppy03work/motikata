@@ -14,7 +14,7 @@
 //      - ChecklistTemplate (ownerType=CLASS, ownerId=schedule.id) を
 //        TaskInstanceCheck にコピー(持ち物リスト)
 
-import { Prisma } from "@prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { weekStartOf as _w, isValidYmd as _v } from "@/lib/week";
 import { matchesOn } from "@/lib/rrule";

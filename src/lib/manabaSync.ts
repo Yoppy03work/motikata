@@ -10,7 +10,7 @@
 //   4. lastSyncedAt / lastError を書き戻し
 
 import { createHash } from "node:crypto";
-import { Prisma } from "@prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { decryptManabaPassword } from "@/lib/manabaCrypto";
 import {

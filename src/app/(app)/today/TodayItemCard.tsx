@@ -190,7 +190,7 @@ export function TodayItemCard({
             ))}
           </div>
           <h3
-            className={`mt-0.5 line-clamp-2 break-words text-sm font-semibold leading-snug ${done ? "line-through" : ""}`}
+            className={`mt-0.5 line-clamp-2 wrap-break-word text-sm font-semibold leading-snug ${done ? "line-through" : ""}`}
           >
             {item.title}
           </h3>
@@ -207,7 +207,7 @@ export function TodayItemCard({
                   checked={c.checked}
                   onChange={() => toggleCheck(c.id)}
                   disabled={pending && false /* don't block UX */}
-                  className="h-4 w-4 rounded border-slate-400 dark:border-slate-600 bg-slate-200 dark:bg-slate-800 accent-sky-500"
+                  className="h-4 w-4 rounded-sm border-slate-400 dark:border-slate-600 bg-slate-200 dark:bg-slate-800 accent-sky-500"
                 />
                 <span className={`text-xs ${c.checked ? "text-slate-500 line-through" : ""}`}>
                   {c.label}
@@ -366,7 +366,7 @@ function DetailModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-xs sm:items-center"
       onClick={onClose}
     >
       <div
@@ -406,7 +406,7 @@ function DetailModal({
               </span>
             </div>
             <h2
-              className={`mt-2 break-words text-lg font-semibold leading-snug ${done ? "line-through opacity-60" : ""}`}
+              className={`mt-2 wrap-break-word text-lg font-semibold leading-snug ${done ? "line-through opacity-60" : ""}`}
             >
               {item.title}
             </h2>
@@ -477,7 +477,7 @@ function DetailModal({
               <h3 className="mb-1 text-[11px] font-medium uppercase tracking-wide text-slate-500">
                 メモ
               </h3>
-              <div className="whitespace-pre-wrap break-words rounded-lg bg-slate-100 dark:bg-slate-900 p-3 text-sm text-slate-800 dark:text-slate-200">
+              <div className="whitespace-pre-wrap wrap-break-word rounded-lg bg-slate-100 dark:bg-slate-900 p-3 text-sm text-slate-800 dark:text-slate-200">
                 {renderWithLinks(item.subtitle)}
               </div>
             </div>
@@ -495,7 +495,7 @@ function DetailModal({
                     className="flex items-center gap-2 text-sm"
                   >
                     <span
-                      className={`inline-block h-4 w-4 rounded border ${c.checked ? "bg-sky-500 border-sky-500" : "border-slate-400 dark:border-slate-600 bg-slate-200 dark:bg-slate-800"}`}
+                      className={`inline-block h-4 w-4 rounded-sm border ${c.checked ? "bg-sky-500 border-sky-500" : "border-slate-400 dark:border-slate-600 bg-slate-200 dark:bg-slate-800"}`}
                       aria-hidden
                     />
                     <span className={c.checked ? "text-slate-500 line-through" : ""}>

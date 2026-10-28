@@ -128,7 +128,7 @@ export function DateNav({
         // position: relative を付けないと、子の offsetLeft が
         // 上位の positioned 祖先(body 等)基準になり、デスクトップで
         // 中央寄せされたレイアウトだと scroll target が大幅にズレる。
-        className="relative mt-3 -mx-4 overflow-x-auto overscroll-x-contain scroll-smooth px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="relative mt-3 -mx-4 overflow-x-auto overscroll-x-contain scroll-smooth px-4 scrollbar-none [&::-webkit-scrollbar]:hidden"
       >
         <div className="flex min-w-max gap-1.5">
           {strip.map((ymd) => {
@@ -140,7 +140,7 @@ export function DateNav({
                 key={ymd}
                 ref={isView ? activeRef : undefined}
                 onClick={() => go(ymd)}
-                className={`flex min-w-[3rem] flex-col items-center rounded-lg px-2 py-1.5 text-xs transition ${
+                className={`flex min-w-12 flex-col items-center rounded-lg px-2 py-1.5 text-xs transition ${
                   isView
                     ? "bg-sky-500 text-slate-950"
                     : isCurrent

@@ -35,7 +35,7 @@ export function CalendarSheet({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-xs"
       onClick={onClose}
     >
       <div

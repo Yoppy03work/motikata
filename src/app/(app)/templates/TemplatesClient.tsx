@@ -271,7 +271,7 @@ export function TemplatesClient() {
         <div
           role="dialog"
           aria-modal="true"
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-xs sm:items-center"
           onClick={(e) => {
             if (e.target === e.currentTarget) setEditing(null);
           }}
@@ -303,7 +303,7 @@ export function TemplatesClient() {
                   }
                   disabled={pending}
                   placeholder="例: 朝のストレッチ / 週次レポート"
-                  className="mt-1 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 outline-none focus:ring-2 focus:ring-sky-500"
+                  className="mt-1 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 outline-hidden focus:ring-2 focus:ring-sky-500"
                 />
               </label>
 
@@ -318,7 +318,7 @@ export function TemplatesClient() {
                   }
                   disabled={pending}
                   rows={2}
-                  className="mt-1 w-full resize-none rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 outline-none focus:ring-2 focus:ring-sky-500"
+                  className="mt-1 w-full resize-none rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 outline-hidden focus:ring-2 focus:ring-sky-500"
                 />
               </label>
 
@@ -363,7 +363,7 @@ export function TemplatesClient() {
                       setForm((f) => ({ ...f, timeHm: e.target.value }))
                     }
                     disabled={pending}
-                    className="mt-1 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 outline-none focus:ring-2 focus:ring-sky-500"
+                    className="mt-1 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 outline-hidden focus:ring-2 focus:ring-sky-500"
                   />
                 </label>
               </div>
@@ -495,7 +495,7 @@ export function TemplatesClient() {
                       }))
                     }
                     disabled={pending}
-                    className="mt-1 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 outline-none focus:ring-2 focus:ring-sky-500"
+                    className="mt-1 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 outline-hidden focus:ring-2 focus:ring-sky-500"
                   />
                   <span className="mt-1 block text-[11px] text-slate-500">
                     存在しない日(例: 31 で2月)はスキップされます

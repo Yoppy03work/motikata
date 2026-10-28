@@ -8,7 +8,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { TaskForm } from "./TaskForm";
-import { isValidYmd } from "@/lib/week";
+import { isValidYmd } from "@/lib/ymd";
 
 const HIDDEN_PREFIXES = ["/settings", "/memo", "/classes", "/templates", "/login"];
 
@@ -103,7 +103,7 @@ export function AddFab() {
 
       {open && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-xs sm:items-center"
           onClick={close}
         >
           {/*
@@ -168,7 +168,7 @@ export function AddFab() {
                     type="date"
                     value={ymd}
                     onChange={(e) => setYmd(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500"
+                    className="mt-1 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm outline-hidden focus:ring-2 focus:ring-sky-500"
                   />
                 </label>
               </div>

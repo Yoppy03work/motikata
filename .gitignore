@@ -25,3 +25,6 @@ tmp/
 # 認証情報を含む)なので、誤コミット防止のため明示的に除外する。
 backups/
 *.sql.gz
+
+# prisma generate の出力先 (prisma/schema.prisma の generator output)
+src/generated/

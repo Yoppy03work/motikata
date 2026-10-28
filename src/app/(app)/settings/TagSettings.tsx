@@ -120,7 +120,7 @@ export function TagSettings() {
             onChange={(e) => setNewName(e.target.value)}
             disabled={pending}
             placeholder="タグ名(例: 数学)"
-            className="flex-1 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-sky-500"
+            className="flex-1 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm outline-hidden focus:ring-2 focus:ring-sky-500"
           />
           <button
             type="button"
@@ -174,7 +174,7 @@ export function TagSettings() {
                   if (next && next !== t.name) void updateTag(t.id, { name: next });
                 }}
                 disabled={pending}
-                className="flex-1 rounded-md border border-transparent bg-transparent px-1 py-0.5 text-sm focus:border-slate-300 focus:bg-white dark:focus:border-slate-700 dark:focus:bg-slate-900 outline-none"
+                className="flex-1 rounded-md border border-transparent bg-transparent px-1 py-0.5 text-sm focus:border-slate-300 focus:bg-white dark:focus:border-slate-700 dark:focus:bg-slate-900 outline-hidden"
               />
               <select
                 value={t.color ?? ""}

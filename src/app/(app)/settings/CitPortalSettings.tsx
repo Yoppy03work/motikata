@@ -255,7 +255,7 @@ export function CitPortalSettings() {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               disabled={pending}
-              className="mt-1 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-sky-500"
+              className="mt-1 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm text-slate-900 dark:text-slate-100 outline-hidden focus:ring-2 focus:ring-sky-500"
             />
           </label>
           <label className="block text-xs">
@@ -268,7 +268,7 @@ export function CitPortalSettings() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               disabled={pending}
-              className="mt-1 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-sky-500"
+              className="mt-1 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm text-slate-900 dark:text-slate-100 outline-hidden focus:ring-2 focus:ring-sky-500"
             />
           </label>
           <label className="block text-xs">
@@ -283,7 +283,7 @@ export function CitPortalSettings() {
                 onChange={(e) => setTotpSecret(e.target.value)}
                 disabled={pending}
                 placeholder="BASE32 または otpauth:// URI"
-                className="flex-1 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-sky-500"
+                className="flex-1 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm text-slate-900 dark:text-slate-100 outline-hidden focus:ring-2 focus:ring-sky-500"
               />
               <button
                 type="button"
@@ -311,7 +311,7 @@ export function CitPortalSettings() {
               onChange={(e) => setTotpDeviceName(e.target.value)}
               disabled={pending}
               placeholder="例: PC(motica)"
-              className="mt-1 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-sky-500"
+              className="mt-1 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm text-slate-900 dark:text-slate-100 outline-hidden focus:ring-2 focus:ring-sky-500"
             />
             <span className="mt-1 block text-[11px] text-slate-500">
               ポータルでTOTP登録時に付けた名前。

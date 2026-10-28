@@ -117,7 +117,6 @@ async function extractSections(pdf: Uint8Array): Promise<{
     data: pdf,
     useSystemFonts: false,
     disableFontFace: true,
-    isEvalSupported: false,
   }).promise;
 
   const headerLines: string[] = [];

@@ -175,7 +175,7 @@ export function MonthCalendar({
               key={ymd}
               onClick={() => onSelect(ymd)}
               className={`relative px-1 pt-1 text-left transition ${
-                useBars ? "pb-1 min-h-[5rem]" : "pb-3 min-h-[3.25rem]"
+                useBars ? "pb-1 min-h-20" : "pb-3 min-h-13"
               } ${
                 ind?.isClassDay
                   ? "bg-sky-100 dark:bg-sky-500/15"
@@ -216,7 +216,7 @@ export function MonthCalendar({
 
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600 dark:text-slate-400">
         <span className="inline-flex items-center gap-1">
-          <span className="inline-block h-3 w-3 rounded-sm bg-sky-100 dark:bg-sky-500/15" />
+          <span className="inline-block h-3 w-3 rounded-xs bg-sky-100 dark:bg-sky-500/15" />
           授業日
         </span>
         {useBars ? (
@@ -249,7 +249,7 @@ function Legend({ color, label }: { color: string; label: string }) {
 function BarLegend({ color, label }: { color: string; label: string }) {
   return (
     <span className="inline-flex items-center gap-1">
-      <span className={`inline-block h-2 w-3 rounded-sm ${color}`} />
+      <span className={`inline-block h-2 w-3 rounded-xs ${color}`} />
       {label}
     </span>
   );
@@ -274,8 +274,8 @@ function CellBars({
         // パレットでは大きな問題は出ない。
         const inlineStyle = ev.color ? { background: ev.color } : undefined;
         const className = ev.color
-          ? "truncate rounded-sm px-1 py-px text-[10px] leading-tight text-white"
-          : `truncate rounded-sm px-1 py-px text-[10px] leading-tight ${barClass(ev.kind)}`;
+          ? "truncate rounded-xs px-1 py-px text-[10px] leading-tight text-white"
+          : `truncate rounded-xs px-1 py-px text-[10px] leading-tight ${barClass(ev.kind)}`;
         // Phase 14a: 時刻 prefix を付ける。 timed なら "HH:mm タイトル"、
         // all-day なら時刻なしのままタイトルだけ表示。
         // startIso は client/server 境界で string なので Date 化して JST 整形。

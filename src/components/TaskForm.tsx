@@ -249,7 +249,7 @@ export function TaskForm({
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder={isTask ? "レポート提出 / 宿題..." : "部活 / ミーティング..."}
-          className="w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 px-3 py-2 text-sm outline-none focus:border-sky-500"
+          className="w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 px-3 py-2 text-sm outline-hidden focus:border-sky-500"
           autoFocus
         />
       </div>
@@ -261,7 +261,7 @@ export function TaskForm({
             type="date"
             value={date}
             onChange={(e) => setDate(e.target.value)}
-            className="w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 px-3 py-2 text-sm outline-none focus:border-sky-500"
+            className="w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 px-3 py-2 text-sm outline-hidden focus:border-sky-500"
           />
         </div>
         <div>
@@ -271,7 +271,7 @@ export function TaskForm({
             value={time}
             onChange={(e) => setTime(e.target.value)}
             disabled={isAllDay}
-            className="w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 px-3 py-2 text-sm outline-none focus:border-sky-500 disabled:opacity-50"
+            className="w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 px-3 py-2 text-sm outline-hidden focus:border-sky-500 disabled:opacity-50"
           />
         </div>
       </div>
@@ -297,7 +297,7 @@ export function TaskForm({
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
               placeholder="multi-day"
-              className="w-full rounded-md border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 px-2 py-1.5 text-xs outline-none focus:border-sky-500"
+              className="w-full rounded-md border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 px-2 py-1.5 text-xs outline-hidden focus:border-sky-500"
             />
           </div>
           <div>
@@ -309,7 +309,7 @@ export function TaskForm({
               value={endTime}
               onChange={(e) => setEndTime(e.target.value)}
               disabled={isAllDay}
-              className="w-full rounded-md border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 px-2 py-1.5 text-xs outline-none focus:border-sky-500 disabled:opacity-50"
+              className="w-full rounded-md border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 px-2 py-1.5 text-xs outline-hidden focus:border-sky-500 disabled:opacity-50"
             />
           </div>
         </div>
@@ -347,7 +347,7 @@ export function TaskForm({
                   className="h-3.5 w-3.5"
                 />
                 <span
-                  className="inline-block h-3 w-3 shrink-0 rounded-sm"
+                  className="inline-block h-3 w-3 shrink-0 rounded-xs"
                   style={{ background: c.colorHex ?? "#94a3b8" }}
                   aria-hidden="true"
                 />
@@ -478,7 +478,7 @@ export function TaskForm({
                   setChecklist(next);
                 }}
                 placeholder="教科書 / ノート PC / 関数電卓..."
-                className="flex-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 px-3 py-2 text-sm outline-none focus:border-sky-500"
+                className="flex-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 px-3 py-2 text-sm outline-hidden focus:border-sky-500"
               />
               <button
                 type="button"
@@ -507,7 +507,7 @@ export function TaskForm({
           onChange={(e) => setNotes(e.target.value)}
           rows={2}
           placeholder="詳細..."
-          className="w-full resize-none rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 px-3 py-2 text-sm outline-none focus:border-sky-500"
+          className="w-full resize-none rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 px-3 py-2 text-sm outline-hidden focus:border-sky-500"
         />
       </div>
 

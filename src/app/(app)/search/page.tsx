@@ -92,7 +92,7 @@ export default function SearchPage() {
         onChange={(e) => setQ(e.target.value)}
         placeholder="キーワード(例: レポート、数学、教科書)"
         autoFocus
-        className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-sky-500"
+        className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2.5 text-sm outline-hidden focus:ring-2 focus:ring-sky-500"
       />
 
       {pending && <p className="mt-3 text-xs text-slate-500">検索中…</p>}
@@ -123,11 +123,11 @@ export default function SearchPage() {
                       <span className="tabular-nums">
                         {formatInTimeZone(new Date(t.dueAt), APP_TZ, "M/d HH:mm")}
                       </span>
-                      <span className="rounded bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5">
+                      <span className="rounded-sm bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5">
                         {t.itemType === "EVENT" ? "予定" : t.required ? "必須" : "任意"}
                       </span>
                       {t.status !== "OPEN" && (
-                        <span className="rounded bg-slate-300 dark:bg-slate-700 px-1.5 py-0.5">
+                        <span className="rounded-sm bg-slate-300 dark:bg-slate-700 px-1.5 py-0.5">
                           {t.status === "DONE" ? "完了" : "スキップ"}
                         </span>
                       )}
@@ -173,16 +173,16 @@ export default function SearchPage() {
                       <span className="tabular-nums">
                         {formatInTimeZone(new Date(n.createdAt), APP_TZ, "M/d HH:mm")}
                       </span>
-                      <span className="rounded bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5">
+                      <span className="rounded-sm bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5">
                         {n.kind === "INBOX" ? "Inbox" : "日次"}
                       </span>
                       {n.promotedTaskId && (
-                        <span className="rounded bg-sky-500/15 text-sky-700 dark:text-sky-300 px-1.5 py-0.5">
+                        <span className="rounded-sm bg-sky-500/15 text-sky-700 dark:text-sky-300 px-1.5 py-0.5">
                           タスク化済
                         </span>
                       )}
                       {n.archivedAt && (
-                        <span className="rounded bg-slate-300 dark:bg-slate-700 px-1.5 py-0.5 opacity-60">
+                        <span className="rounded-sm bg-slate-300 dark:bg-slate-700 px-1.5 py-0.5 opacity-60">
                           消化
                         </span>
                       )}

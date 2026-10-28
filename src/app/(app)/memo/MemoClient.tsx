@@ -136,7 +136,7 @@ export function MemoClient() {
                 ? "思いついたこと…(あとでタスクに昇格)"
                 : "今日のメモ…"
             }
-            className="w-full resize-none bg-transparent text-sm placeholder-slate-500 outline-none"
+            className="w-full resize-none bg-transparent text-sm placeholder-slate-500 outline-hidden"
           />
           <div className="mt-2 flex items-center justify-between">
             <span className="text-[11px] text-slate-500">
@@ -255,12 +255,12 @@ function NoteRow({
         <span>
           {formatInTimeZone(new Date(note.createdAt), APP_TZ, "M/d HH:mm", { locale: ja })}
           {tab === "stream" && (
-            <span className="ml-2 rounded bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5">
+            <span className="ml-2 rounded-sm bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5">
               {note.kind === "INBOX" ? "Inbox" : "日次"}
             </span>
           )}
           {promoted && (
-            <span className="ml-2 rounded bg-sky-500/15 text-sky-700 dark:text-sky-300 px-1.5 py-0.5">
+            <span className="ml-2 rounded-sm bg-sky-500/15 text-sky-700 dark:text-sky-300 px-1.5 py-0.5">
               タスク化済
             </span>
           )}
@@ -298,14 +298,14 @@ function NoteRow({
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
               disabled={pending}
-              className="flex-1 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-sky-500"
+              className="flex-1 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1 text-xs outline-hidden focus:ring-2 focus:ring-sky-500"
             />
             <input
               type="time"
               value={dueTime}
               onChange={(e) => setDueTime(e.target.value)}
               disabled={pending}
-              className="w-24 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-sky-500"
+              className="w-24 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1 text-xs outline-hidden focus:ring-2 focus:ring-sky-500"
             />
           </div>
           <div className="mt-2 flex gap-1.5">

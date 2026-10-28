@@ -4,7 +4,7 @@
 import { prisma } from "./db";
 import { decryptGoogleRefreshToken } from "./googleCrypto";
 import { refreshAccessToken } from "./googleOAuth";
-import type { GoogleCredential } from "@prisma/client";
+import type { GoogleCredential } from "@/generated/prisma/client";
 
 const ACCESS_TOKEN_REFRESH_SKEW_SEC = 30;
 
