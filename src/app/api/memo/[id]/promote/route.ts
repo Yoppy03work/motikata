@@ -12,6 +12,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireAuthApi } from "@/lib/authGuard";
 import { TaskPriority } from "@/lib/validation/enums";
+import { parseId } from "@/lib/id";
 
 export const dynamic = "force-dynamic";
 
@@ -42,8 +43,8 @@ export async function POST(
   const guard = await requireAuthApi();
   if (guard) return guard;
   const { id: idStr } = await params;
-  const id = Number(idStr);
-  if (!Number.isInteger(id)) {
+  const id = parseId(idStr);
+  if (id === null) {
     return NextResponse.json({ error: "invalid id" }, { status: 400 });
   }
   const parsed = Body.safeParse(await req.json().catch(() => null));

@@ -6,6 +6,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireAuthApi } from "@/lib/authGuard";
+import { parseId, zOrderIdx } from "@/lib/id";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,7 @@ const PutBody = z.object({
     .array(
       z.object({
         label: z.string().min(1).max(120),
-        orderIdx: z.number().int().min(0).optional(),
+        orderIdx: zOrderIdx.optional(),
       }),
     )
     .max(100),
@@ -27,8 +28,8 @@ export async function GET(
   const guard = await requireAuthApi();
   if (guard) return guard;
   const { id: idStr } = await params;
-  const classId = Number(idStr);
-  if (!Number.isInteger(classId)) {
+  const classId = parseId(idStr);
+  if (classId === null) {
     return NextResponse.json({ error: "invalid id" }, { status: 400 });
   }
   const items = await prisma.checklistTemplate.findMany({
@@ -45,8 +46,8 @@ export async function PUT(
   const guard = await requireAuthApi();
   if (guard) return guard;
   const { id: idStr } = await params;
-  const classId = Number(idStr);
-  if (!Number.isInteger(classId)) {
+  const classId = parseId(idStr);
+  if (classId === null) {
     return NextResponse.json({ error: "invalid id" }, { status: 400 });
   }
   const parsed = PutBody.safeParse(await req.json().catch(() => null));

@@ -7,6 +7,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getSession, isSessionValid } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { parseId } from "@/lib/id";
 
 export async function POST(
   req: NextRequest,
@@ -17,8 +18,8 @@ export async function POST(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const { id } = await ctx.params;
-  const calendarId = Number(id);
-  if (!Number.isInteger(calendarId)) {
+  const calendarId = parseId(id);
+  if (calendarId === null) {
     return NextResponse.json({ error: "invalid id" }, { status: 400 });
   }
   let body: { enabled?: unknown };

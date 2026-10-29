@@ -5,6 +5,7 @@ import { z } from "zod";
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { requireAuthApi } from "@/lib/authGuard";
+import { parseId } from "@/lib/id";
 
 export const dynamic = "force-dynamic";
 
@@ -46,8 +47,8 @@ export async function PATCH(
   const guard = await requireAuthApi();
   if (guard) return guard;
   const { id: idStr } = await params;
-  const id = Number(idStr);
-  if (!Number.isInteger(id)) {
+  const id = parseId(idStr);
+  if (id === null) {
     return NextResponse.json({ error: "invalid id" }, { status: 400 });
   }
   const parsed = UpdateBody.safeParse(await req.json().catch(() => null));
@@ -220,8 +221,8 @@ export async function DELETE(
   const guard = await requireAuthApi();
   if (guard) return guard;
   const { id: idStr } = await params;
-  const id = Number(idStr);
-  if (!Number.isInteger(id)) {
+  const id = parseId(idStr);
+  if (id === null) {
     return NextResponse.json({ error: "invalid id" }, { status: 400 });
   }
   // ChecklistTemplate (ownerType=CLASS, ownerId=classId) は FK ではなく

@@ -1,4 +1,12 @@
 import { z } from "zod";
+import {
+  zId,
+  zOrderIdx,
+  zOffsetMin,
+  MAX_TAG_IDS,
+  MAX_REMINDERS,
+  MAX_CHECKLIST_ITEMS,
+} from "@/lib/id";
 
 const HHmm = z.string().regex(/^\d{2}:\d{2}$/, "HH:mm 形式で入力してください");
 
@@ -15,19 +23,19 @@ const ClassFields = z.object({
   teacher: z.string().max(60).optional(),
   effectiveFrom: z.string().date().optional(),
   effectiveTo: z.string().date().optional(),
-  tagIds: z.array(z.number().int()),
+  tagIds: z.array(zId).max(MAX_TAG_IDS),
   checklist: z.array(
     z.object({
       label: z.string().min(1).max(120),
-      orderIdx: z.number().int().min(0).default(0),
+      orderIdx: zOrderIdx.default(0),
     }),
-  ),
+  ).max(MAX_CHECKLIST_ITEMS),
   reminders: z.array(
     z.object({
-      offsetMin: z.number().int(),
+      offsetMin: zOffsetMin,
       channel: z.enum(["SLACK", "PUSH"]),
     }),
-  ),
+  ).max(MAX_REMINDERS),
 });
 
 export const ClassCreateInput = ClassFields.extend({

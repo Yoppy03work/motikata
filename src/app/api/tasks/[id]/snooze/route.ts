@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { requireAuthApi } from "@/lib/authGuard";
+import { parseId } from "@/lib/id";
 
 const SNOOZE_MINUTES = 60;
 
@@ -9,8 +10,8 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   const guard = await requireAuthApi();
   if (guard) return guard;
   const { id: idStr } = await params;
-  const id = Number(idStr);
-  if (!Number.isInteger(id)) return NextResponse.json({ error: "invalid id" }, { status: 400 });
+  const id = parseId(idStr);
+  if (id === null) return NextResponse.json({ error: "invalid id" }, { status: 400 });
 
   // タスク存在チェック(削除済みのスヌーズは 404 を返す)
   const exists = await prisma.taskInstance.findUnique({
