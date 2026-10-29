@@ -78,7 +78,7 @@ type EditTarget = {
 // 背景は -100 系(薄い)、文字は -800 / dark は -200 を使う。
 type Palette = {
   card: string; // bg + ring (light/dark)
-  accent: string; // 左アクセントバー
+  accent: string; // 上アクセントバー
   hover: string;
 };
 // 色は3色に統一: sky(主) / slate(中性) / rose(警告)。
@@ -918,10 +918,10 @@ function ClassCell({
   // ユーザ指定色 or 科目名ハッシュの自動配色。
   // カスタム色:
   //   - 背景 = 白方向に 75% 寄せた色(sky-100 相当の薄さ)
-  //   - 左アクセントバー = 選択色そのまま(濃い)
+  //   - 上アクセントバー = 選択色そのまま(濃い)
   //   - 科目名 = ニュートラルな読みやすい色(白/黒、背景輝度から自動)
   //   - 教室・教員 = 同じく自動だが透明度を下げる
-  // オリジナル(palette)も同じ「左濃い・背景薄い」の構造。
+  // オリジナル(palette)も同じ「上濃い・背景薄い」の構造。
   const customColor = item.color;
   const palette = customColor ? null : paletteFor(item.courseName);
   const customBg = customColor ? lightenHex(customColor, 0.75) : null;
@@ -947,14 +947,14 @@ function ClassCell({
           : {}),
       }}
     >
-      {/* 左アクセントバー: パレット時は class、カスタム時は inline で濃い色 */}
+      {/* 上アクセントバー: パレット時は class、カスタム時は inline で濃い色 */}
       <span
-        className={`absolute left-0 top-0 h-full w-1 ${palette ? palette.accent : ""}`}
+        className={`absolute left-0 top-0 h-1 w-full ${palette ? palette.accent : ""}`}
         style={customColor ? { background: customColor } : undefined}
         aria-hidden
       />
       {/* 時限・時刻は行見出しと重複するのでセルには出さない(aria-label には残す) */}
-      <div className="flex w-full min-w-0 flex-col gap-0.5 py-1 pl-1.5 pr-0.5">
+      <div className="flex w-full min-w-0 flex-col gap-0.5 px-1 pt-2 pb-1">
         <div
           className={`line-clamp-4 break-all text-xs font-bold leading-tight ${
             palette ? "text-slate-900 dark:text-slate-50" : ""
