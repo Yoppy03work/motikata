@@ -5,6 +5,7 @@ import { z } from "zod";
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { requireAuthApi } from "@/lib/authGuard";
+import { classOverlapWhere } from "@/lib/classOverlap";
 import { parseId } from "@/lib/id";
 
 export const dynamic = "force-dynamic";
@@ -82,14 +83,16 @@ export async function PATCH(
   // TimetableClient のグリッドは同セル(同 dayOfWeek+period)に複数授業が
   // 重なるとセル単位 occupied 判定で後勝ち1件のみ描画し、編集者が気付か
   // ないまま DB だけ重複した状態になる(Codex P2 3432475528)。
-  // 区間重なり判定: A.period <= B.endPeriod && A.endPeriod >= B.period。
+  // 有効期間が重ならない別学期・別年度の授業は対象外。
   const overlap = await prisma.classSchedule.findFirst({
-    where: {
-      id: { not: id },
+    where: classOverlapWhere({
       dayOfWeek: nextDayOfWeek,
-      period: { lte: nextEndPeriod },
-      endPeriod: { gte: nextPeriod },
-    },
+      period: nextPeriod,
+      endPeriod: nextEndPeriod,
+      effectiveFrom: existing.effectiveFrom,
+      effectiveTo: existing.effectiveTo,
+      excludeId: id,
+    }),
     select: {
       id: true,
       courseName: true,

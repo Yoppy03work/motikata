@@ -5,7 +5,11 @@
 // グリッド: 月-土 × 1-10限。複数限の授業は rowspan で連続セル占有。
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { currentFiscalYear, fiscalYearOf } from "@/lib/fiscalYear";
+import {
+  currentFiscalYear,
+  fiscalYearOf,
+  type Semester,
+} from "@/lib/fiscalYear";
 
 type Item = {
   id: number;
@@ -22,8 +26,6 @@ type Item = {
   // ユーザ指定のカード色 (hex)。null は科目名ハッシュで自動配色。
   color: string | null;
 };
-
-type Semester = "first" | "second";
 
 // JST の現在日付から前期/後期を判定。
 // 前期: 4-9月、後期: 10-3月。
@@ -71,6 +73,8 @@ type EditTarget = {
   dayOfWeek: number;
   period: number;
   existing: Item | null;
+  // 新規追加時の登録先(いま表示している年度・学期)
+  term: { year: number; semester: Semester };
 };
 
 // 授業名から自動で割り当てるカード配色。
@@ -211,9 +215,12 @@ export function TimetableClient() {
     return d === 0 ? 0 : d;
   });
 
-  // 年度の選択肢: データにある年度 + 今年度(データが無くても選べるように)。新しい順。
+  // 年度の選択肢: データにある年度 + 今年度の 5 年前〜1 年後。
+  // データの無い年度も選べるようにして、過去・来年度の時間割を手で入れられるようにする。新しい順。
   const yearOptions = useMemo(() => {
-    const years = new Set<number>([currentFiscalYear()]);
+    const now = currentFiscalYear();
+    const years = new Set<number>();
+    for (let y = now - 5; y <= now + 1; y++) years.add(y);
     for (const it of items) {
       if (it.effectiveFrom) years.add(fiscalYearOf(new Date(it.effectiveFrom)));
     }
@@ -399,6 +406,7 @@ export function TimetableClient() {
                               dayOfWeek: d.value,
                               period: p.value,
                               existing: it ?? null,
+                              term: { year, semester },
                             })
                           }
                           onLongPress={() => {
@@ -440,6 +448,7 @@ export function TimetableClient() {
               dayOfWeek: viewing.dayOfWeek,
               period: viewing.period,
               existing: viewing,
+              term: { year, semester },
             });
             setViewing(null);
           }}
@@ -486,6 +495,8 @@ function EditModal({
     };
   }, [target]);
   const [form, setForm] = useState<FormState>(initial);
+  // 新規追加: 表示中の年度・学期に限定するか(false なら期間なしで全年度に表示)
+  const [limitToTerm, setLimitToTerm] = useState(true);
   // 持ち物 (ChecklistTemplate) — ClassSchedule の id があるときだけ管理可
   const [items, setItems] = useState<string[]>([""]);
   const [itemsLoaded, setItemsLoaded] = useState(false);
@@ -554,6 +565,9 @@ function EditModal({
         classroom: form.classroom.trim() || null,
         teacher: form.teacher.trim() || null,
         color: form.color,
+        ...(target.existing
+          ? {}
+          : { term: limitToTerm ? target.term : null }),
       };
       const url = target.existing
         ? `/api/classes/${target.existing.id}`
@@ -566,7 +580,17 @@ function EditModal({
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        setError(typeof err.error === "string" ? err.error : `保存失敗 (${res.status})`);
+        // zod の flatten 形式 { fieldErrors: { period: ["..."] } } なら最初のメッセージを出す
+        // (枠の重なりなど。以前は「保存失敗 (409)」としか表示されなかった)
+        const fieldMsg =
+          err.error && typeof err.error === "object"
+            ? (Object.values(err.error.fieldErrors ?? {}).flat()[0] as string | undefined)
+            : undefined;
+        setError(
+          typeof err.error === "string"
+            ? err.error
+            : (fieldMsg ?? `保存失敗 (${res.status})`),
+        );
         return;
       }
       const json = await res.json().catch(() => ({}));
@@ -638,6 +662,20 @@ function EditModal({
           </button>
         </div>
         <div className="space-y-3">
+          {!target.existing && (
+            <Field label="登録先">
+              <select
+                value={limitToTerm ? "term" : "all"}
+                onChange={(e) => setLimitToTerm(e.target.value === "term")}
+                className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm outline-hidden focus:ring-2 focus:ring-sky-500"
+              >
+                <option value="term">
+                  {target.term.year}年度 {target.term.semester === "first" ? "前期" : "後期"}のみ
+                </option>
+                <option value="all">期間を限定しない(すべての年度・学期)</option>
+              </select>
+            </Field>
+          )}
           <Field label="授業名" required>
             <input
               type="text"

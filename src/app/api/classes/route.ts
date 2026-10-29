@@ -5,6 +5,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireAuthApi } from "@/lib/authGuard";
+import { classOverlapWhere } from "@/lib/classOverlap";
+import { termRange } from "@/lib/fiscalYear";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +34,14 @@ const CreateBody = z
     classroom: z.string().max(60).optional().nullable(),
     teacher: z.string().max(60).optional().nullable(),
     color: HexColor,
+    // 登録先の学年度・学期。null / 未指定なら期間なし(全年度に表示)。
+    term: z
+      .object({
+        year: z.number().int().min(2000).max(2100),
+        semester: z.enum(["first", "second"]),
+      })
+      .optional()
+      .nullable(),
   })
   .refine((v) => v.endPeriod >= v.period, {
     message: "終了限は開始限以上にしてください",
@@ -55,18 +65,32 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  // 同じ dayOfWeek 上で既存 ClassSchedule の period レンジと交差していないか。
+  // 同じ dayOfWeek 上で既存 ClassSchedule の period レンジと交差していないか
+  // (有効期間が重ならない別学期・別年度の授業は対象外)。
   // TimetableClient のグリッドはセル単位 occupied 判定で後勝ち1件しか
   // 描画しないため、無検証で create を許すと DB は重複したまま UI から
   // どちらかが消える状態になる(Codex P2 3432475528 と同問題、POST 経路)。
-  const { dayOfWeek, period, endPeriod, classroom, teacher, color, ...rest } =
-    parsed.data;
+  const {
+    dayOfWeek,
+    period,
+    endPeriod,
+    classroom,
+    teacher,
+    color,
+    term,
+    ...rest
+  } = parsed.data;
+  const range = term ? termRange(term.year, term.semester) : null;
+  const effectiveFrom = range?.from ?? null;
+  const effectiveTo = range?.to ?? null;
   const overlap = await prisma.classSchedule.findFirst({
-    where: {
+    where: classOverlapWhere({
       dayOfWeek,
-      period: { lte: endPeriod },
-      endPeriod: { gte: period },
-    },
+      period,
+      endPeriod,
+      effectiveFrom,
+      effectiveTo,
+    }),
     select: {
       id: true,
       courseName: true,
@@ -102,6 +126,8 @@ export async function POST(req: Request) {
       classroom: classroom ?? null,
       teacher: teacher ?? null,
       color: color ?? null,
+      effectiveFrom,
+      effectiveTo,
     },
   });
   return NextResponse.json({ ok: true, item }, { status: 201 });

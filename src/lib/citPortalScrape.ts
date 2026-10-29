@@ -22,6 +22,7 @@ import * as cheerio from "cheerio";
 import type { AnyNode, Element } from "domhandler";
 import { TOTP } from "otpauth";
 import { isTrustedSubmitTarget } from "./scrapeGuard";
+import { termRange } from "./fiscalYear";
 
 export type CitPortalClass = {
   // 月=1, 火=2, 水=3, 木=4, 金=5, 土=6
@@ -874,26 +875,6 @@ function periodEndTime(period: number): string {
   return hhmm(9 + period, 0);
 }
 
-function semesterRange(
-  year: number,
-  isFirstHalf: boolean,
-): { from: Date; to: Date } {
-  // JST 基準:
-  //   前期 = 4/1 00:00 JST 〜 9/30 23:59 JST
-  //   後期 = 10/1 00:00 JST 〜 (year+1) 3/31 23:59 JST
-  // JSTは UTC+9 なので Date.UTC で時刻を9時間前にずらして「JSTの00:00」を作る。
-  if (isFirstHalf) {
-    return {
-      from: new Date(Date.UTC(year, 3, 1, -9, 0, 0)), // 4/1 00:00 JST
-      to: new Date(Date.UTC(year, 9, 0, 14, 59, 59)), // 9/30 23:59 JST
-    };
-  }
-  return {
-    from: new Date(Date.UTC(year, 9, 1, -9, 0, 0)), // 10/1 00:00 JST
-    to: new Date(Date.UTC(year + 1, 3, 0, 14, 59, 59)), // 3/31 23:59 JST
-  };
-}
-
 function extractClassesFromTable(
   $: cheerio.CheerioAPI,
   table: Element,
@@ -907,7 +888,7 @@ function extractClassesFromTable(
   const isFirstHalf = legend.includes("前期");
   // legend に4桁年が無い場合の fallback。
   //
-  // semesterRange の引数 `year` の定義:
+  // termRange の引数 `year` の定義:
   //   前期 → その year の 4/1 〜 9/30
   //   後期 → その year の 10/1 〜 (year+1) の 3/31
   // つまり 後期 を 1〜3月に同期する状況では、現在進行中の 後期 は
@@ -921,9 +902,9 @@ function extractClassesFromTable(
   const yearFallback =
     !isFirstHalf && jstMonth <= 3 ? jstYear - 1 : jstYear;
   const year = yearMatch ? Number(yearMatch[1]) : yearFallback;
-  const { from: effectiveFrom, to: effectiveTo } = semesterRange(
+  const { from: effectiveFrom, to: effectiveTo } = termRange(
     year,
-    isFirstHalf,
+    isFirstHalf ? "first" : "second",
   );
 
   $table.find("tbody > tr").each((_, tr) => {

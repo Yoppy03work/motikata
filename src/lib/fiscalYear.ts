@@ -13,3 +13,28 @@ export function fiscalYearOf(date: Date): number {
 export function currentFiscalYear(now: Date = new Date()): number {
   return fiscalYearOf(now);
 }
+
+export type Semester = "first" | "second";
+
+/**
+ * 学年度 + 学期の期間(JST 基準)を UTC の Date で返す。
+ *   前期 = year/4/1 00:00 JST 〜 year/9/30 23:59:59 JST
+ *   後期 = year/10/1 00:00 JST 〜 (year+1)/3/31 23:59:59 JST
+ * CIT ポータル同期が保存する effectiveFrom / effectiveTo と同じ値になる。
+ */
+export function termRange(
+  year: number,
+  semester: Semester,
+): { from: Date; to: Date } {
+  // JST は UTC+9 なので、Date.UTC の時を -9 して「JST の 00:00」を作る。
+  if (semester === "first") {
+    return {
+      from: new Date(Date.UTC(year, 3, 1, -9, 0, 0)),
+      to: new Date(Date.UTC(year, 9, 0, 14, 59, 59)),
+    };
+  }
+  return {
+    from: new Date(Date.UTC(year, 9, 1, -9, 0, 0)),
+    to: new Date(Date.UTC(year + 1, 3, 0, 14, 59, 59)),
+  };
+}
