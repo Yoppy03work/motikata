@@ -7,6 +7,8 @@ COPY package.json package-lock.json* ./
 RUN --mount=type=cache,target=/root/.npm npm install
 
 FROM base AS build
+# Next.js の匿名テレメトリ(Vercel への送信)を止める
+ENV NEXT_TELEMETRY_DISABLED=1
 COPY . .
 RUN npx prisma generate
 RUN npm run build
@@ -14,6 +16,7 @@ RUN npm run build
 FROM node:24-alpine AS web
 WORKDIR /app
 ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=build /app/package.json /app/package-lock.json* ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/.next ./.next

@@ -9,6 +9,8 @@ const securityHeaders = [
 
 const nextConfig = {
   reactStrictMode: true,
+  // next dev が AI エージェント向けの AGENTS.md を自動生成・再生成するのを止める。
+  agentRules: false,
   // pdfjs-dist は Node ESM で globalThis に副作用を入れる作りで、
   // RSC バンドルに巻き込むと "Object.defineProperty called on non-object" で
   // 初期化が壊れる。Server External Package として外す。
