@@ -1,10 +1,40 @@
+const isDev = process.env.NODE_ENV !== "production";
+
+// 静的な CSP。Next.js が埋め込むインラインスクリプトと layout.tsx のテーマ初期化
+// スクリプトのため script-src に 'unsafe-inline' が要る(nonce 方式は全ページの
+// 動的レンダリングが必要になるので見送り)。それでも外部ドメインからのスクリプト読み込み、
+// <object>、<base> 書き換え、外部への fetch/送信は塞げる。
+// - img-src data:  html5-qrcode が UI アイコンを data URI で持っている
+// - media-src blob: QR スキャナーのカメラ映像
+// - dev のみ: React の開発ビルドが eval を使い、HMR が WebSocket を使う
+const csp = [
+  "default-src 'self'",
+  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "font-src 'self' data:",
+  `connect-src 'self'${isDev ? " ws: wss:" : ""}`,
+  "media-src 'self' blob:",
+  "worker-src 'self'",
+  "manifest-src 'self'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  // クリックジャッキング防止: 他サイトからの iframe 埋め込みを全面禁止
+  "frame-ancestors 'none'",
+].join("; ");
+
 /** @type {import('next').NextConfig} */
 const securityHeaders = [
-  // クリックジャッキング防止: 他サイトからの iframe 埋め込みを全面禁止
-  { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
+  { key: "Content-Security-Policy", value: csp },
   { key: "X-Frame-Options", value: "DENY" },
   { key: "Referrer-Policy", value: "same-origin" },
   { key: "X-Content-Type-Options", value: "nosniff" },
+  // HTTP で受けた HSTS はブラウザが無視するので、HTTP 運用中は効果も害もない。
+  // HTTPS 化したときに自動で効く。サブドメインは巻き込まない。
+  ...(isDev
+    ? []
+    : [{ key: "Strict-Transport-Security", value: "max-age=31536000" }]),
 ];
 
 const nextConfig = {
