@@ -36,6 +36,7 @@ export async function GET(req: Request) {
         priority: true,
         notes: true,
         source: true,
+        sourceExternalId: true,
       },
       orderBy: { dueAt: "desc" },
       take: LIMIT,

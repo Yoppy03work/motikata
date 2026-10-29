@@ -3,6 +3,8 @@ export type TodayItem = {
   itemType: "TASK" | "EVENT";
   required: boolean;
   source: "MANUAL" | "RECURRING" | "CLASS" | "ACADEMIC" | "GOOGLE";
+  // manaba 等の外部由来の安定 ID。UI は extractManabaUrl で URL 復元に使う。
+  sourceExternalId?: string | null;
   title: string;
   subtitle?: string;
   dueAt: string;
