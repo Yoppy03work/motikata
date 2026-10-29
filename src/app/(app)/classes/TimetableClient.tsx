@@ -5,6 +5,7 @@
 // グリッド: 月-土 × 1-10限。複数限の授業は rowspan で連続セル占有。
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { currentFiscalYear, fiscalYearOf } from "@/lib/fiscalYear";
 
 type Item = {
   id: number;
@@ -200,6 +201,8 @@ export function TimetableClient() {
   const [error, setError] = useState<string | null>(null);
   // 学期切替。デフォルトは今日の日付に応じて自動選択。
   const [semester, setSemester] = useState<Semester>(() => semesterOfNow());
+  // 学年度(4月始まり)切替。デフォルトは今年度。
+  const [year, setYear] = useState<number>(() => currentFiscalYear());
 
   // 今日の曜日(JST、月=1〜土=6 にマップ。日曜は 0 で対象外)
   const [todayDow] = useState(() => {
@@ -208,15 +211,27 @@ export function TimetableClient() {
     return d === 0 ? 0 : d;
   });
 
-  // 学期フィルタ済みアイテム。
-  // 前期/後期 の2択。effectiveFrom が null のものは両方の学期に表示する
+  // 年度の選択肢: データにある年度 + 今年度(データが無くても選べるように)。新しい順。
+  const yearOptions = useMemo(() => {
+    const years = new Set<number>([currentFiscalYear()]);
+    for (const it of items) {
+      if (it.effectiveFrom) years.add(fiscalYearOf(new Date(it.effectiveFrom)));
+    }
+    return [...years].sort((a, b) => b - a);
+  }, [items]);
+
+  // 年度・学期フィルタ済みアイテム。
+  // 前期/後期 の2択。effectiveFrom が null のものはすべての年度・学期に表示する
   // (手動入力された授業など。学期境界が無いので暦に依存させない方針)。
   const filteredItems = useMemo(() => {
     return items.filter((it) => {
-      const s = semesterOfItem(it);
-      return s === "unknown" || s === semester;
+      if (!it.effectiveFrom) return true;
+      return (
+        fiscalYearOf(new Date(it.effectiveFrom)) === year &&
+        semesterOfItem(it) === semester
+      );
     });
-  }, [items, semester]);
+  }, [items, semester, year]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -260,28 +275,44 @@ export function TimetableClient() {
         </p>
       )}
 
-      {/* 学期切替(前期 / 後期) */}
-      <div className="mb-2 grid grid-cols-2 gap-1 rounded-lg border border-slate-300 bg-white p-1 text-xs dark:border-slate-700 dark:bg-slate-950">
-        {(
-          [
-            { v: "first" as const, label: "前期" },
-            { v: "second" as const, label: "後期" },
-          ]
-        ).map((opt) => (
-          <button
-            key={opt.v}
-            type="button"
-            onClick={() => setSemester(opt.v)}
-            aria-pressed={semester === opt.v}
-            className={`rounded-md px-2 py-1 transition ${
-              semester === opt.v
-                ? "bg-sky-500 text-white"
-                : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
-            }`}
+      {/* 年度切替 + 学期切替(前期 / 後期) */}
+      <div className="mb-2 flex gap-2">
+        <label className="shrink-0">
+          <span className="sr-only">年度</span>
+          <select
+            value={year}
+            onChange={(e) => setYear(Number(e.target.value))}
+            className="h-full rounded-lg border border-slate-300 bg-white px-2 text-xs font-medium text-slate-800 outline-hidden focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
           >
-            {opt.label}
-          </button>
-        ))}
+            {yearOptions.map((y) => (
+              <option key={y} value={y}>
+                {y}年度
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="grid flex-1 grid-cols-2 gap-1 rounded-lg border border-slate-300 bg-white p-1 text-xs dark:border-slate-700 dark:bg-slate-950">
+          {(
+            [
+              { v: "first" as const, label: "前期" },
+              { v: "second" as const, label: "後期" },
+            ]
+          ).map((opt) => (
+            <button
+              key={opt.v}
+              type="button"
+              onClick={() => setSemester(opt.v)}
+              aria-pressed={semester === opt.v}
+              className={`rounded-md px-2 py-1 transition ${
+                semester === opt.v
+                  ? "bg-sky-500 text-white"
+                  : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* 凡例 */}
@@ -1003,22 +1034,11 @@ function DetailsModal({
     item.endPeriod !== item.period
       ? `${item.period}限〜${item.endPeriod}限`
       : `${item.period}限`;
-  const semester =
-    item.effectiveFrom &&
-    new Date(
-      new Date(item.effectiveFrom).getTime() + 9 * 3600 * 1000,
-    ).getUTCMonth() +
-      1 >=
-      4 &&
-    new Date(
-      new Date(item.effectiveFrom).getTime() + 9 * 3600 * 1000,
-    ).getUTCMonth() +
-      1 <=
-      9
-      ? "前期"
-      : item.effectiveFrom
-        ? "後期"
-        : "—";
+  const semester = item.effectiveFrom
+    ? `${fiscalYearOf(new Date(item.effectiveFrom))}年度 ${
+        semesterOfItem(item) === "first" ? "前期" : "後期"
+      }`
+    : "—";
 
   return (
     <div
