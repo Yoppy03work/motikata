@@ -495,8 +495,6 @@ function EditModal({
     };
   }, [target]);
   const [form, setForm] = useState<FormState>(initial);
-  // 新規追加: 表示中の年度・学期に限定するか(false なら期間なしで全年度に表示)
-  const [limitToTerm, setLimitToTerm] = useState(true);
   // 持ち物 (ChecklistTemplate) — ClassSchedule の id があるときだけ管理可
   const [items, setItems] = useState<string[]>([""]);
   const [itemsLoaded, setItemsLoaded] = useState(false);
@@ -565,9 +563,8 @@ function EditModal({
         classroom: form.classroom.trim() || null,
         teacher: form.teacher.trim() || null,
         color: form.color,
-        ...(target.existing
-          ? {}
-          : { term: limitToTerm ? target.term : null }),
+        // 新規追加は表示中の年度・学期に登録する
+        ...(target.existing ? {} : { term: target.term }),
       };
       const url = target.existing
         ? `/api/classes/${target.existing.id}`
@@ -664,16 +661,9 @@ function EditModal({
         <div className="space-y-3">
           {!target.existing && (
             <Field label="登録先">
-              <select
-                value={limitToTerm ? "term" : "all"}
-                onChange={(e) => setLimitToTerm(e.target.value === "term")}
-                className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm outline-hidden focus:ring-2 focus:ring-sky-500"
-              >
-                <option value="term">
-                  {target.term.year}年度 {target.term.semester === "first" ? "前期" : "後期"}のみ
-                </option>
-                <option value="all">期間を限定しない(すべての年度・学期)</option>
-              </select>
+              <p className="rounded-md bg-slate-100 dark:bg-slate-900 px-2 py-1.5 text-sm text-slate-700 dark:text-slate-300">
+                {target.term.year}年度 {target.term.semester === "first" ? "前期" : "後期"}
+              </p>
             </Field>
           )}
           <Field label="授業名" required>

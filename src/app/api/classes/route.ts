@@ -34,14 +34,11 @@ const CreateBody = z
     classroom: z.string().max(60).optional().nullable(),
     teacher: z.string().max(60).optional().nullable(),
     color: HexColor,
-    // 登録先の学年度・学期。null / 未指定なら期間なし(全年度に表示)。
-    term: z
-      .object({
-        year: z.number().int().min(2000).max(2100),
-        semester: z.enum(["first", "second"]),
-      })
-      .optional()
-      .nullable(),
+    // 登録先の学年度・学期。effectiveFrom / effectiveTo はここから決める。
+    term: z.object({
+      year: z.number().int().min(2000).max(2100),
+      semester: z.enum(["first", "second"]),
+    }),
   })
   .refine((v) => v.endPeriod >= v.period, {
     message: "終了限は開始限以上にしてください",
@@ -80,9 +77,10 @@ export async function POST(req: Request) {
     term,
     ...rest
   } = parsed.data;
-  const range = term ? termRange(term.year, term.semester) : null;
-  const effectiveFrom = range?.from ?? null;
-  const effectiveTo = range?.to ?? null;
+  const { from: effectiveFrom, to: effectiveTo } = termRange(
+    term.year,
+    term.semester,
+  );
   const overlap = await prisma.classSchedule.findFirst({
     where: classOverlapWhere({
       dayOfWeek,
