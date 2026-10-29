@@ -45,8 +45,20 @@ describe("deriveCredentialKey", () => {
     expect(a).not.toEqual(b);
   });
 
-  it("CREDENTIAL_ENCRYPTION_KEY が短い(<32)場合は legacy にフォールバック", () => {
+  it("CREDENTIAL_ENCRYPTION_KEY が短い(<32)場合は黙って legacy に落ちず例外", () => {
     process.env.CREDENTIAL_ENCRYPTION_KEY = "short";
+    let legacyCalled = false;
+    expect(() =>
+      deriveCredentialKey("manaba", () => {
+        legacyCalled = true;
+        return legacy();
+      }),
+    ).toThrow(/32 文字以上/);
+    expect(legacyCalled).toBe(false);
+  });
+
+  it("CREDENTIAL_ENCRYPTION_KEY が空文字なら未設定扱いで legacy にフォールバック", () => {
+    process.env.CREDENTIAL_ENCRYPTION_KEY = "";
     const k = deriveCredentialKey("manaba", legacy);
     expect(k).toEqual(legacy());
   });
