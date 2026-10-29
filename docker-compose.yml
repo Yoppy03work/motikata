@@ -55,8 +55,10 @@ services:
       - MANABA_BASE_URL=${MANABA_BASE_URL:-}
       # CITポータルスクレイパーのステップ別デバッグログ。問題切り分け時のみ有効化。
       - CIT_PORTAL_DEBUG=${CIT_PORTAL_DEBUG:-0}
+    # 既定は 127.0.0.1 のみ(この Mac からだけ見える)。公開するときは
+    # WEB_HOST_BIND="0.0.0.0:3000" などを設定し、APP_ORIGIN も合わせる。
     ports:
-      - "3000:3000"
+      - "${WEB_HOST_BIND:-127.0.0.1:3000}:3000"
 
   worker:
     build:

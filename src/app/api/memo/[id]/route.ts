@@ -2,13 +2,14 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireAuthApi } from "@/lib/authGuard";
 import { NoteUpdateInput } from "@/lib/validation/memo";
+import { parseId } from "@/lib/id";
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const guard = await requireAuthApi();
   if (guard) return guard;
   const { id: idStr } = await params;
-  const id = Number(idStr);
-  if (!Number.isInteger(id)) return NextResponse.json({ error: "invalid id" }, { status: 400 });
+  const id = parseId(idStr);
+  if (id === null) return NextResponse.json({ error: "invalid id" }, { status: 400 });
   const parsed = NoteUpdateInput.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
@@ -31,8 +32,8 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   const guard = await requireAuthApi();
   if (guard) return guard;
   const { id: idStr } = await params;
-  const id = Number(idStr);
-  if (!Number.isInteger(id)) return NextResponse.json({ error: "invalid id" }, { status: 400 });
+  const id = parseId(idStr);
+  if (id === null) return NextResponse.json({ error: "invalid id" }, { status: 400 });
   await prisma.note.delete({ where: { id } });
   return NextResponse.json({ ok: true });
 }
