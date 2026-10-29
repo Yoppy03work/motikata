@@ -79,7 +79,6 @@ type EditTarget = {
 type Palette = {
   card: string; // bg + ring (light/dark)
   accent: string; // 左アクセントバー
-  badge: string; // 限ラベル文字色
   hover: string;
 };
 // 色は3色に統一: sky(主) / slate(中性) / rose(警告)。
@@ -88,19 +87,16 @@ const PALETTES: Palette[] = [
   {
     card: "bg-sky-100 ring-sky-300 dark:bg-sky-500/20 dark:ring-sky-500/40",
     accent: "bg-sky-500",
-    badge: "text-sky-800 dark:text-sky-200",
     hover: "hover:bg-sky-200 dark:hover:bg-sky-500/30",
   },
   {
     card: "bg-slate-200 ring-slate-400 dark:bg-slate-700/40 dark:ring-slate-600",
     accent: "bg-slate-500",
-    badge: "text-slate-800 dark:text-slate-200",
     hover: "hover:bg-slate-300 dark:hover:bg-slate-700/60",
   },
   {
     card: "bg-rose-100 ring-rose-300 dark:bg-rose-500/20 dark:ring-rose-500/40",
     accent: "bg-rose-500",
-    badge: "text-rose-800 dark:text-rose-200",
     hover: "hover:bg-rose-200 dark:hover:bg-rose-500/30",
   },
 ];
@@ -182,15 +178,6 @@ function lightenHex(hex: string, ratio: number): string {
   const c = parseHex(hex);
   if (!c) return hex;
   const blend = (v: number) => Math.round(v + (255 - v) * ratio);
-  return rgbToCss({ r: blend(c.r), g: blend(c.g), b: blend(c.b) });
-}
-
-// hex を黒方向に ratio (0..1) ぶん寄せた色を返す。
-// ratio=0.5 で sky-400 → sky-800 相当(オリジナルのバッジ文字色に近い)。
-function darkenHex(hex: string, ratio: number): string {
-  const c = parseHex(hex);
-  if (!c) return hex;
-  const blend = (v: number) => Math.round(v * (1 - ratio));
   return rgbToCss({ r: blend(c.r), g: blend(c.g), b: blend(c.b) });
 }
 
@@ -309,19 +296,21 @@ export function TimetableClient() {
         </span>
       </div>
 
+      {/* 月〜土を横スクロールなしで一覧できるよう table-fixed で列幅を均等割りにし、
+          セル内の文字は列幅に収まるよう折り返す。 */}
       <div
-        className="overflow-x-auto rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950"
+        className="overflow-hidden rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950"
         role="grid"
         aria-label="時間割"
       >
-        <table className="w-full border-separate border-spacing-0 text-sm">
+        <table className="w-full table-fixed border-separate border-spacing-0 text-sm">
           <thead>
             <tr>
               <th
                 scope="col"
-                className="sticky left-0 z-10 w-14 border-b border-r border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 p-1 text-xs font-semibold text-slate-700 dark:text-slate-300"
+                className="w-9 border-b border-r border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 p-0.5 text-[10px] font-semibold text-slate-700 dark:text-slate-300"
               >
-                時限
+                限
               </th>
               {DAYS.map((d) => {
                 const isToday = d.value === todayDow;
@@ -331,7 +320,7 @@ export function TimetableClient() {
                     scope="col"
                     // aria-current は a11y のために残す(視覚的には他と同じ)
                     aria-current={isToday ? "date" : undefined}
-                    className="border-b border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 p-2 text-base font-bold text-slate-800 dark:text-slate-200"
+                    className="border-b border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 py-1.5 text-sm font-bold text-slate-800 dark:text-slate-200"
                   >
                     {d.label}
                   </th>
@@ -346,14 +335,14 @@ export function TimetableClient() {
                 <tr key={p.value}>
                   <th
                     scope="row"
-                    className={`sticky left-0 z-10 bg-slate-100 dark:bg-slate-900 border-r border-slate-300 dark:border-slate-700 px-1 py-1 text-center align-middle ${
+                    className={`bg-slate-100 dark:bg-slate-900 border-r border-slate-300 dark:border-slate-700 px-0 py-1 text-center align-middle ${
                       isLastRow ? "" : "border-b"
                     }`}
                   >
-                    <div className="text-base font-bold text-slate-800 dark:text-slate-200 tabular-nums leading-tight">
+                    <div className="text-sm font-bold text-slate-800 dark:text-slate-200 tabular-nums leading-tight">
                       {p.value}
                     </div>
-                    <div className="text-xs font-medium text-slate-600 dark:text-slate-400 tabular-nums leading-tight">
+                    <div className="text-[9px] font-medium text-slate-600 dark:text-slate-400 tabular-nums leading-tight">
                       {p.start}
                     </div>
                   </th>
@@ -367,7 +356,7 @@ export function TimetableClient() {
                         key={d.value}
                         rowSpan={span}
                         role="gridcell"
-                        className="p-1 align-top"
+                        className="p-0.5 align-top"
                       >
                         <ClassCell
                           item={it ?? null}
@@ -930,7 +919,6 @@ function ClassCell({
   // カスタム色:
   //   - 背景 = 白方向に 75% 寄せた色(sky-100 相当の薄さ)
   //   - 左アクセントバー = 選択色そのまま(濃い)
-  //   - 時限/時刻バッジ = 選択色を 50% 黒方向に寄せた色(sky-800 相当の濃さ)
   //   - 科目名 = ニュートラルな読みやすい色(白/黒、背景輝度から自動)
   //   - 教室・教員 = 同じく自動だが透明度を下げる
   // オリジナル(palette)も同じ「左濃い・背景薄い」の構造。
@@ -938,7 +926,6 @@ function ClassCell({
   const palette = customColor ? null : paletteFor(item.courseName);
   const customBg = customColor ? lightenHex(customColor, 0.75) : null;
   const customText = customBg ? readableTextColor(customBg) : undefined;
-  const customBadge = customColor ? darkenHex(customColor, 0.5) : undefined;
 
   return (
     <button
@@ -966,21 +953,10 @@ function ClassCell({
         style={customColor ? { background: customColor } : undefined}
         aria-hidden
       />
-      <div className="flex w-full flex-col gap-0.5 px-2 py-1.5 pl-2.5">
+      {/* 時限・時刻は行見出しと重複するのでセルには出さない(aria-label には残す) */}
+      <div className="flex w-full min-w-0 flex-col gap-0.5 py-1 pl-1.5 pr-0.5">
         <div
-          className={`flex items-baseline gap-1 text-xs font-bold tabular-nums ${
-            palette ? palette.badge : ""
-          }`}
-          style={customBadge ? { color: customBadge } : undefined}
-        >
-          <span>{periodLabel}</span>
-          <span aria-hidden className="opacity-60">·</span>
-          <span className="font-semibold opacity-90">
-            {item.startTime}〜{item.endTime}
-          </span>
-        </div>
-        <div
-          className={`line-clamp-2 text-base font-bold leading-tight ${
+          className={`line-clamp-4 break-all text-xs font-bold leading-tight ${
             palette ? "text-slate-900 dark:text-slate-50" : ""
           }`}
           style={customText ? { color: customText } : undefined}
@@ -989,7 +965,7 @@ function ClassCell({
         </div>
         {item.classroom && (
           <div
-            className={`mt-auto truncate text-sm font-medium ${
+            className={`mt-auto line-clamp-2 break-all text-[10px] font-medium leading-tight ${
               palette ? "text-slate-800 dark:text-slate-200" : ""
             }`}
             style={customText ? { color: customText, opacity: 0.9 } : undefined}
@@ -999,7 +975,7 @@ function ClassCell({
         )}
         {item.teacher && (
           <div
-            className={`truncate text-xs font-medium ${
+            className={`truncate text-[10px] font-medium ${
               palette ? "text-slate-600 dark:text-slate-300" : ""
             }`}
             style={customText ? { color: customText, opacity: 0.75 } : undefined}
