@@ -5,6 +5,7 @@
 //   1. CitPortalCredential を読んでパスワード+TOTPシークレットを復号
 //   2. fetchCitPortalTimetable で時間割を取得
 //   3. ClassSchedule を全置換(履修登録変更があり得るので新しい結果で完全に置き換え)
+//      - 置き換えるのは今回取得できた学年度の範囲だけ。過去年度の行は残す
 //      - トランザクション内で deleteMany → createMany
 //      - 関連する ClassTag, TaskTemplate(classScheduleId) は cascade で消える
 //      - ChecklistTemplate(ownerType=CLASS, ownerId=...) は cascade されないので
@@ -27,6 +28,7 @@ import {
   CitPortalError,
   type CitPortalClass,
 } from "@/lib/citPortalScrape";
+import { pickStaleClassIds } from "@/lib/citPortalReconcile";
 
 export type CitPortalSyncResult =
   | {
@@ -259,9 +261,11 @@ async function doRunCitPortalSync(): Promise<CitPortalSyncResult> {
 
       // 3) 削除対象(同期由来のうち今回スクレイプ結果に無いもの)。
       //    importedFrom=null の手動授業はここで絶対に含まれない。
-      const toDeleteIds = existing
-        .filter((e) => !newByKey.has(keyOf(e)))
-        .map((e) => e.id);
+      //    今回取得できた学年度の行だけを置き換え、過去年度の行は残す
+      //    (時間割画面の年度切り替えで過去の時間割を見られるようにするため)。
+      const toDeleteIds = pickStaleClassIds(existing, classes, (e) =>
+        newByKey.has(keyOf(e)),
+      );
       if (toDeleteIds.length > 0) {
         await tx.checklistTemplate.deleteMany({
           where: { ownerType: "CLASS", ownerId: { in: toDeleteIds } },

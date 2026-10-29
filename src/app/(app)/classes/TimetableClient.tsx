@@ -5,6 +5,11 @@
 // グリッド: 月-土 × 1-10限。複数限の授業は rowspan で連続セル占有。
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  currentFiscalYear,
+  fiscalYearOf,
+  type Semester,
+} from "@/lib/fiscalYear";
 
 type Item = {
   id: number;
@@ -21,8 +26,6 @@ type Item = {
   // ユーザ指定のカード色 (hex)。null は科目名ハッシュで自動配色。
   color: string | null;
 };
-
-type Semester = "first" | "second";
 
 // JST の現在日付から前期/後期を判定。
 // 前期: 4-9月、後期: 10-3月。
@@ -70,6 +73,8 @@ type EditTarget = {
   dayOfWeek: number;
   period: number;
   existing: Item | null;
+  // 新規追加時の登録先(いま表示している年度・学期)
+  term: { year: number; semester: Semester };
 };
 
 // 授業名から自動で割り当てるカード配色。
@@ -200,6 +205,8 @@ export function TimetableClient() {
   const [error, setError] = useState<string | null>(null);
   // 学期切替。デフォルトは今日の日付に応じて自動選択。
   const [semester, setSemester] = useState<Semester>(() => semesterOfNow());
+  // 学年度(4月始まり)切替。デフォルトは今年度。
+  const [year, setYear] = useState<number>(() => currentFiscalYear());
 
   // 今日の曜日(JST、月=1〜土=6 にマップ。日曜は 0 で対象外)
   const [todayDow] = useState(() => {
@@ -208,15 +215,30 @@ export function TimetableClient() {
     return d === 0 ? 0 : d;
   });
 
-  // 学期フィルタ済みアイテム。
-  // 前期/後期 の2択。effectiveFrom が null のものは両方の学期に表示する
+  // 年度の選択肢: データにある年度 + 今年度の 5 年前〜1 年後。
+  // データの無い年度も選べるようにして、過去・来年度の時間割を手で入れられるようにする。新しい順。
+  const yearOptions = useMemo(() => {
+    const now = currentFiscalYear();
+    const years = new Set<number>();
+    for (let y = now - 5; y <= now + 1; y++) years.add(y);
+    for (const it of items) {
+      if (it.effectiveFrom) years.add(fiscalYearOf(new Date(it.effectiveFrom)));
+    }
+    return [...years].sort((a, b) => b - a);
+  }, [items]);
+
+  // 年度・学期フィルタ済みアイテム。
+  // 前期/後期 の2択。effectiveFrom が null のものはすべての年度・学期に表示する
   // (手動入力された授業など。学期境界が無いので暦に依存させない方針)。
   const filteredItems = useMemo(() => {
     return items.filter((it) => {
-      const s = semesterOfItem(it);
-      return s === "unknown" || s === semester;
+      if (!it.effectiveFrom) return true;
+      return (
+        fiscalYearOf(new Date(it.effectiveFrom)) === year &&
+        semesterOfItem(it) === semester
+      );
     });
-  }, [items, semester]);
+  }, [items, semester, year]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -260,28 +282,44 @@ export function TimetableClient() {
         </p>
       )}
 
-      {/* 学期切替(前期 / 後期) */}
-      <div className="mb-2 grid grid-cols-2 gap-1 rounded-lg border border-slate-300 bg-white p-1 text-xs dark:border-slate-700 dark:bg-slate-950">
-        {(
-          [
-            { v: "first" as const, label: "前期" },
-            { v: "second" as const, label: "後期" },
-          ]
-        ).map((opt) => (
-          <button
-            key={opt.v}
-            type="button"
-            onClick={() => setSemester(opt.v)}
-            aria-pressed={semester === opt.v}
-            className={`rounded-md px-2 py-1 transition ${
-              semester === opt.v
-                ? "bg-sky-500 text-white"
-                : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
-            }`}
+      {/* 年度切替 + 学期切替(前期 / 後期) */}
+      <div className="mb-2 flex gap-2">
+        <label className="shrink-0">
+          <span className="sr-only">年度</span>
+          <select
+            value={year}
+            onChange={(e) => setYear(Number(e.target.value))}
+            className="h-full rounded-lg border border-slate-300 bg-white px-2 text-xs font-medium text-slate-800 outline-hidden focus:ring-2 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
           >
-            {opt.label}
-          </button>
-        ))}
+            {yearOptions.map((y) => (
+              <option key={y} value={y}>
+                {y}年度
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="grid flex-1 grid-cols-2 gap-1 rounded-lg border border-slate-300 bg-white p-1 text-xs dark:border-slate-700 dark:bg-slate-950">
+          {(
+            [
+              { v: "first" as const, label: "前期" },
+              { v: "second" as const, label: "後期" },
+            ]
+          ).map((opt) => (
+            <button
+              key={opt.v}
+              type="button"
+              onClick={() => setSemester(opt.v)}
+              aria-pressed={semester === opt.v}
+              className={`rounded-md px-2 py-1 transition ${
+                semester === opt.v
+                  ? "bg-sky-500 text-white"
+                  : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* 凡例 */}
@@ -368,6 +406,7 @@ export function TimetableClient() {
                               dayOfWeek: d.value,
                               period: p.value,
                               existing: it ?? null,
+                              term: { year, semester },
                             })
                           }
                           onLongPress={() => {
@@ -409,6 +448,7 @@ export function TimetableClient() {
               dayOfWeek: viewing.dayOfWeek,
               period: viewing.period,
               existing: viewing,
+              term: { year, semester },
             });
             setViewing(null);
           }}
@@ -523,6 +563,8 @@ function EditModal({
         classroom: form.classroom.trim() || null,
         teacher: form.teacher.trim() || null,
         color: form.color,
+        // 新規追加は表示中の年度・学期に登録する
+        ...(target.existing ? {} : { term: target.term }),
       };
       const url = target.existing
         ? `/api/classes/${target.existing.id}`
@@ -535,7 +577,17 @@ function EditModal({
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        setError(typeof err.error === "string" ? err.error : `保存失敗 (${res.status})`);
+        // zod の flatten 形式 { fieldErrors: { period: ["..."] } } なら最初のメッセージを出す
+        // (枠の重なりなど。以前は「保存失敗 (409)」としか表示されなかった)
+        const fieldMsg =
+          err.error && typeof err.error === "object"
+            ? (Object.values(err.error.fieldErrors ?? {}).flat()[0] as string | undefined)
+            : undefined;
+        setError(
+          typeof err.error === "string"
+            ? err.error
+            : (fieldMsg ?? `保存失敗 (${res.status})`),
+        );
         return;
       }
       const json = await res.json().catch(() => ({}));
@@ -607,6 +659,13 @@ function EditModal({
           </button>
         </div>
         <div className="space-y-3">
+          {!target.existing && (
+            <Field label="登録先">
+              <p className="rounded-md bg-slate-100 dark:bg-slate-900 px-2 py-1.5 text-sm text-slate-700 dark:text-slate-300">
+                {target.term.year}年度 {target.term.semester === "first" ? "前期" : "後期"}
+              </p>
+            </Field>
+          )}
           <Field label="授業名" required>
             <input
               type="text"
@@ -1003,22 +1062,11 @@ function DetailsModal({
     item.endPeriod !== item.period
       ? `${item.period}限〜${item.endPeriod}限`
       : `${item.period}限`;
-  const semester =
-    item.effectiveFrom &&
-    new Date(
-      new Date(item.effectiveFrom).getTime() + 9 * 3600 * 1000,
-    ).getUTCMonth() +
-      1 >=
-      4 &&
-    new Date(
-      new Date(item.effectiveFrom).getTime() + 9 * 3600 * 1000,
-    ).getUTCMonth() +
-      1 <=
-      9
-      ? "前期"
-      : item.effectiveFrom
-        ? "後期"
-        : "—";
+  const semester = item.effectiveFrom
+    ? `${fiscalYearOf(new Date(item.effectiveFrom))}年度 ${
+        semesterOfItem(item) === "first" ? "前期" : "後期"
+      }`
+    : "—";
 
   return (
     <div
