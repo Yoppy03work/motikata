@@ -7,6 +7,7 @@
 //   - ローカルストレージには保存しない
 
 import { useCallback, useEffect, useState } from "react";
+import { isSyncStale } from "@/lib/syncStaleness";
 
 type CredentialState = {
   id: number;
@@ -136,6 +137,11 @@ export function ManabaSettings() {
           <div className="mt-0.5 text-slate-500">
             最終同期: {formatTs(cred.lastSyncedAt)}
           </div>
+          {isSyncStale(cred.lastSyncedAt) && (
+            <p className="mt-1 text-amber-600 dark:text-amber-400 text-[11px]">
+              自動同期が 12 時間以上成功していません。手動で同期してください。
+            </p>
+          )}
           {cred.lastError && (
             <p className="mt-1 text-rose-500 text-[11px]">
               直近エラー: {cred.lastError}
