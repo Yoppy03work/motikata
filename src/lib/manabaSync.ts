@@ -134,6 +134,7 @@ export async function runManabaSync(): Promise<ManabaSyncResult> {
     const externalId = externalIdOf(a);
     const title = `${a.course} / ${a.title}`;
     const notes = a.url ? `manaba: ${a.url}` : null;
+    const academicKind = a.kind ?? null;
     // 並行 run(cron + 手動 / リトライ重複)で同じ assignment を2回 create
     // しないよう、(source, sourceExternalId) の DB ユニーク制約に頼って upsert。
     // findFirst + create の non-atomic だと両方が「存在しない」と判定して両方
@@ -150,7 +151,7 @@ export async function runManabaSync(): Promise<ManabaSyncResult> {
         sourceExternalId: externalId,
         status: "OPEN",
       },
-      data: { title, dueAt: a.dueAt!, notes },
+      data: { title, dueAt: a.dueAt!, notes, academicKind },
     });
     if (updRes.count > 0) {
       updated++;
@@ -176,6 +177,7 @@ export async function runManabaSync(): Promise<ManabaSyncResult> {
             title,
             dueAt: a.dueAt!,
             notes,
+            academicKind,
             sourceExternalId: externalId,
           },
         });
@@ -240,6 +242,7 @@ export async function runManabaSync(): Promise<ManabaSyncResult> {
           source: "ACADEMIC",
           sourceExternalId: externalId,
           notes,
+          academicKind,
         },
       });
       inserted++;
