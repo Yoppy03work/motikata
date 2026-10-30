@@ -1,5 +1,6 @@
 import cron from "node-cron";
 import { appendJobLog } from "./jobLog";
+import { latestSyncSlot, staleTargets, type LastSync } from "./catchUp";
 
 console.log("[worker] starting — TZ=" + process.env.TZ);
 // 再起動の記録(止まっていた期間をあとから追えるように)
@@ -117,11 +118,6 @@ cron.schedule(
   },
   { timezone: "Asia/Tokyo" },
 );
-// 起動時にも 1 回呼ぶ。worker が朝の cron tick を寝過ごしたまま再起動
-// された場合の catch-up。expandToday は冪等なので空打ちでも害は無い。
-// callJob 自体が JOBS_TOKEN 未設定なら no-op するので、ローカル開発で
-// JOBS_TOKEN を設定していない環境でも安全。
-void callJob("/api/jobs/expand-today", "expand-today (startup catch-up)");
 
 // dispatch-reminders: 毎分。pending な Reminder を Slack/Push に流す。
 // 直前の実行が 60 秒以上かかると次の cron tick が重なり、同じ PENDING 行を
@@ -158,12 +154,74 @@ cron.schedule(
 //   3. cit-portal-sync で時間割(ClassSchedule)を全置換
 // 注意: cit-portal-sync は同期内で 1 回 SSO+MFA する。1 日 3 回ログインは
 //       同一 IP からの連続アクセスとして検知対象になる可能性がある(様子見)。
+// 時刻を変えるときは worker/catchUp.ts の SYNC_HOURS_JST も揃えること。
+let syncInFlight = false;
+// 同期を試みた予定時刻(epoch ms)。取りこぼし判定で同じ予定時刻を 2 回叩かない
+// ために持つ(失敗しても 1 予定時刻 1 回まで。CIT は毎回 SSO+MFA するため)。
+let attemptedSlot: number | null = null;
+
+async function runSyncChain(targets: { manaba: boolean; citPortal: boolean }): Promise<void> {
+  if (syncInFlight) return;
+  syncInFlight = true;
+  try {
+    if (targets.manaba) {
+      await callJob("/api/jobs/cleanup-past-tasks", "cleanup-past-tasks");
+      await callJob("/api/jobs/manaba-sync", "manaba-sync");
+    }
+    if (targets.citPortal) await callJob("/api/jobs/cit-portal-sync", "cit-portal-sync");
+  } finally {
+    syncInFlight = false;
+  }
+}
+
 cron.schedule(
   "0 4,13,19 * * *",
   async () => {
-    await callJob("/api/jobs/cleanup-past-tasks", "cleanup-past-tasks");
-    await callJob("/api/jobs/manaba-sync", "manaba-sync");
-    await callJob("/api/jobs/cit-portal-sync", "cit-portal-sync");
+    attemptedSlot = latestSyncSlot(new Date()).getTime();
+    await runSyncChain({ manaba: true, citPortal: true });
+  },
+  { timezone: "Asia/Tokyo" },
+);
+
+// 各連携の最終同期時刻を web の /api/health から取る(worker は DB に直接触らない)。
+// 取れなければ null(web が落ちている等。次の tick でやり直す)。
+async function fetchLastSync(): Promise<LastSync | null> {
+  if (!JOBS_TOKEN) return null;
+  try {
+    const res = await fetch(`${WEB_URL}/api/health`, {
+      headers: { Authorization: `Bearer ${JOBS_TOKEN}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { lastSync?: LastSync };
+    return body.lastSync ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// 取りこぼしの補完: Mac のスリープや Docker 停止で予定時刻を過ぎると node-cron は
+// 実行をやり直さないので、直近の予定時刻より後に同期できていなければ今やる。
+async function catchUpSync(): Promise<void> {
+  if (!JOBS_TOKEN || syncInFlight) return;
+  const slot = latestSyncSlot(new Date());
+  if (attemptedSlot === slot.getTime()) return;
+  const last = await fetchLastSync();
+  if (!last) return;
+  attemptedSlot = slot.getTime();
+  const targets = staleTargets(slot, last);
+  if (!targets.manaba && !targets.citPortal) return;
+  const names = [targets.manaba && "manaba", targets.citPortal && "cit-portal"].filter(Boolean);
+  console.log(`[worker] catch-up-sync: missed ${slot.toISOString()} → ${names.join(", ")}`);
+  appendJobLog("catch-up-sync", "ok", `slot=${slot.toISOString()} targets=${names.join(",")}`);
+  await runSyncChain(targets);
+}
+
+// 10 分ごと(毎時 05, 15, ... 分)。予定時刻ちょうどの cron とは重ならないようにずらす。
+cron.schedule(
+  "5-55/10 * * * *",
+  () => {
+    void catchUpSync();
   },
   { timezone: "Asia/Tokyo" },
 );
@@ -208,6 +266,35 @@ cron.schedule(
   },
   { timezone: "Asia/Tokyo" },
 );
+
+// 起動時: web の起動を待ってから catch-up する。
+// worker は web と同時に起動するので、すぐ叩くと fetch failed になっていた。
+async function waitForWeb(timeoutMs = 180_000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(`${WEB_URL}/api/health`, { signal: AbortSignal.timeout(5_000) });
+      if (res.ok) return true;
+    } catch {
+      // まだ起動中
+    }
+    await new Promise((r) => setTimeout(r, 3_000));
+  }
+  return false;
+}
+
+void (async () => {
+  if (!JOBS_TOKEN) return;
+  if (!(await waitForWeb())) {
+    console.error("[worker] web did not become ready; startup catch-up skipped");
+    appendJobLog("worker", "error", "web not ready; startup catch-up skipped");
+    return;
+  }
+  // worker が朝の cron tick を寝過ごしたまま再起動された場合の catch-up。
+  // expandToday は冪等なので空打ちでも害は無い。
+  await callJob("/api/jobs/expand-today", "expand-today (startup catch-up)");
+  await catchUpSync();
+})();
 
 process.on("SIGINT", () => {
   console.log("[worker] shutting down");
