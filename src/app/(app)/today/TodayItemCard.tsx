@@ -6,6 +6,7 @@ import { formatInTimeZone } from "date-fns-tz";
 import { APP_TZ } from "@/lib/tz";
 import { CompletionModal } from "@/components/CompletionModal";
 import { extractManabaUrl } from "@/lib/manabaUrl";
+import { AcademicKindBadge } from "@/components/AcademicKindBadge";
 import type { TodayItem } from "./types";
 
 // notes 内の URL を anchor 化するためのヘルパ。
@@ -207,11 +208,7 @@ export function TodayItemCard({
                 {priorityLabel[item.priority]}
               </span>
             )}
-            {item.academicKind && (
-              <span className="rounded-md bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-medium text-violet-700 dark:text-violet-300">
-                {item.academicKind}
-              </span>
-            )}
+            <AcademicKindBadge kind={item.academicKind} />
             {item.tags.map((t) => (
               <span
                 key={t.id}

@@ -7,6 +7,7 @@ import { ja } from "date-fns/locale/ja";
 import Link from "next/link";
 import { APP_TZ } from "@/lib/tz";
 import { extractManabaUrl } from "@/lib/manabaUrl";
+import { AcademicKindBadge } from "./AcademicKindBadge";
 import { TaskForm } from "./TaskForm";
 
 type Instance = {
@@ -20,6 +21,7 @@ type Instance = {
   status: "OPEN" | "DONE" | "SKIPPED";
   source: string;
   sourceExternalId: string | null;
+  academicKind: string | null;
   checklist: { id: number; label: string; checkedAt: string | null; orderIdx: number }[];
   tags: { tag: { id: number; name: string; color: string | null } }[];
 };
@@ -224,6 +226,7 @@ function Group({
                 <span className={`truncate text-sm ${strike ? "line-through" : ""}`}>
                   {it.title}
                 </span>
+                <AcademicKindBadge kind={it.academicKind} />
                 {it.itemType === "TASK" && !it.required && (
                   <span className="ml-auto rounded-sm bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-600 dark:text-slate-400">
                     任意
