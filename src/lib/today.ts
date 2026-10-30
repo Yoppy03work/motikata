@@ -43,6 +43,7 @@ export async function getDayItems(ymd: string): Promise<TodayItem[]> {
     required: i.required,
     source: i.source,
     sourceExternalId: i.sourceExternalId,
+    academicKind: i.academicKind,
     title: i.title,
     subtitle: i.notes ?? undefined,
     dueAt: i.dueAt.toISOString(),

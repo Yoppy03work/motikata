@@ -187,6 +187,9 @@ model TaskInstance {
   completedAt      DateTime?
   source           TaskSource
   sourceExternalId String?
+  // manaba の課題一覧の「タイプ」列(レポート / アンケート / 小テスト / プロジェクト 等)。
+  // UI で種類のラベルを出す用。manaba 以外と、取得前の既存行は null。
+  academicKind     String?
   // Google カレンダー由来の予定が、どの GoogleCalendar から取得されたか。
   // Phase 2 で導入。Google 以外の source では常に null。
   // カレンダー削除時 (GoogleCalendar.onDelete=Cascade) で taskInstance も

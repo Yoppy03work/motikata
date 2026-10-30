@@ -25,6 +25,8 @@ export type ManabaAssignment = {
   title: string;
   dueAt: Date | null;
   url?: string | null;
+  // 一覧の「タイプ」列(レポート / アンケート / 小テスト 等)。空なら null。
+  kind?: string | null;
 };
 
 export class ManabaError extends Error {
@@ -281,7 +283,7 @@ function parseDueDate(text: string): Date | null {
 // ドリルはユーザ要望で除外する。
 const SKIP_TYPES = new Set(["ドリル"]);
 
-function parseAssignmentsHtml(html: string, base: string): ManabaAssignment[] {
+export function parseAssignmentsHtml(html: string, base: string): ManabaAssignment[] {
   const $ = cheerio.load(html);
   const out: ManabaAssignment[] = [];
 
@@ -306,7 +308,7 @@ function parseAssignmentsHtml(html: string, base: string): ManabaAssignment[] {
     const titleHref = $(tds[1]).find("a").first().attr("href");
     const url = titleHref ? new URL(titleHref, `${base}/ct/`).toString() : null;
 
-    out.push({ course, title, dueAt, url });
+    out.push({ course, title, dueAt, url, kind: type || null });
   });
 
   if (process.env.MANABA_DEBUG === "1") {
