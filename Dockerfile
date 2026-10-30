@@ -39,5 +39,7 @@ COPY --from=build /app/prisma.config.ts ./
 COPY --from=build /app/worker ./worker
 COPY --from=build /app/src ./src
 COPY --from=build /app/tsconfig.json ./
+# job ログの置き場(docker-compose で volume を被せる)。node ユーザーが書けるように
+RUN mkdir -p /app/logs && chown node:node /app/logs
 USER node
 CMD ["npm", "run", "worker:start"]

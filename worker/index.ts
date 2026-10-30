@@ -1,6 +1,9 @@
 import cron from "node-cron";
+import { appendJobLog } from "./jobLog";
 
 console.log("[worker] starting — TZ=" + process.env.TZ);
+// 再起動の記録(止まっていた期間をあとから追えるように)
+appendJobLog("worker", "ok", "started");
 
 const WEB_URL = process.env.WEB_URL ?? "http://localhost:3000";
 const JOBS_TOKEN = process.env.JOBS_TOKEN;
@@ -30,6 +33,7 @@ async function callJob(path: string, label: string): Promise<void> {
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       console.error(`[worker] ${label} failed: ${res.status} ${body.slice(0, 200)}`);
+      appendJobLog(label, "failed", `${res.status} ${body.slice(0, 200)}`);
       return;
     }
     const json = (await res.json().catch(() => null)) as
@@ -47,7 +51,7 @@ async function callJob(path: string, label: string): Promise<void> {
           isClassDay?: boolean;
         }
       | null;
-    if (
+    const didWork = !!(
       json &&
       (json.sent ||
         json.failed ||
@@ -58,7 +62,9 @@ async function callJob(path: string, label: string): Promise<void> {
         json.scheduled ||
         json.scanned ||
         json.replaced)
-    ) {
+    );
+    let summary = "";
+    if (json && didWork) {
       const parts: string[] = [];
       if (json.examined !== undefined) parts.push(`examined=${json.examined}`);
       if (json.classes !== undefined) parts.push(`classes=${json.classes}`);
@@ -70,15 +76,20 @@ async function callJob(path: string, label: string): Promise<void> {
       if (json.replaced !== undefined) parts.push(`replaced=${json.replaced}`);
       if (json.skipped !== undefined) parts.push(`skipped=${json.skipped}`);
       if (json.deleted !== undefined) parts.push(`deleted=${json.deleted}`);
-      console.log(`[worker] ${label}: ${parts.join(" ")}`);
+      summary = parts.join(" ");
+      console.log(`[worker] ${label}: ${summary}`);
     }
+    // 毎分の dispatch-reminders は空振りを残すと他の job が埋もれるので、仕事をした時だけ
+    if (didWork || label !== "dispatch-reminders") appendJobLog(label, "ok", summary);
   } catch (e) {
     if (ctrl.signal.aborted) {
       console.error(
         `[worker] ${label} timed out after ${JOB_TIMEOUT_MS}ms`,
       );
+      appendJobLog(label, "timeout", `${JOB_TIMEOUT_MS}ms`);
     } else {
       console.error(`[worker] ${label} error:`, e instanceof Error ? e.message : e);
+      appendJobLog(label, "error", e instanceof Error ? e.message : String(e));
     }
   } finally {
     clearTimeout(timeout);
