@@ -12,7 +12,7 @@
 //
 // 既に standalone (display-mode: standalone) で起動されているなら何も表示しない。
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 
 // Chrome BeforeInstallPromptEvent (TypeScript lib 未収録の experimental DOM API)。
 // prompt() を呼んでユーザーが install を承認すると userChoice が resolve する。
@@ -42,23 +42,31 @@ function isStandalone(): boolean {
   );
 }
 
+// display-mode の変化を購読する(useSyncExternalStore 用)
+function subscribeDisplayMode(onChange: () => void): () => void {
+  const mql = window.matchMedia("(display-mode: standalone)");
+  mql.addEventListener("change", onChange);
+  return () => mql.removeEventListener("change", onChange);
+}
+
 export function PwaInstallPrompt() {
   const [installEvent, setInstallEvent] = useState<BeforeInstallPromptEvent | null>(null);
   const [showIosGuide, setShowIosGuide] = useState(false);
-  const [installed, setInstalled] = useState(false);
+  // アプリとして起動中か(SSR では false)。以前は effect 内で setState していた。
+  const standalone = useSyncExternalStore(subscribeDisplayMode, isStandalone, () => false);
+  // このページを開いている間にインストールされたか
+  const [installedNow, setInstalledNow] = useState(false);
+  const installed = standalone || installedNow;
 
   useEffect(() => {
-    if (isStandalone()) {
-      setInstalled(true);
-      return;
-    }
+    if (isStandalone()) return;
     // Android Chrome / Edge
     const onPrompt = (e: Event) => {
       e.preventDefault(); // 自動表示を抑え、UI ボタンで promote
       setInstallEvent(e as BeforeInstallPromptEvent);
     };
     const onInstalled = () => {
-      setInstalled(true);
+      setInstalledNow(true);
       setInstallEvent(null);
     };
     window.addEventListener("beforeinstallprompt", onPrompt);
@@ -85,7 +93,7 @@ export function PwaInstallPrompt() {
         onClick={async () => {
           await installEvent.prompt();
           const choice = await installEvent.userChoice;
-          if (choice.outcome === "accepted") setInstalled(true);
+          if (choice.outcome === "accepted") setInstalledNow(true);
           setInstallEvent(null);
         }}
         className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-1.5 text-xs text-sky-700 dark:text-sky-300 active:scale-95"

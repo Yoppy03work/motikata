@@ -44,8 +44,14 @@ export function GoogleCalendarSettings() {
   const [status, setStatus] = useState<Status | null>(null);
   const [calendars, setCalendars] = useState<CalendarRow[] | null>(null);
   const [busy, startBusy] = useTransition();
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // /api/oauth/google/callback から ?google=ok&msg=... or ?google=error&msg=... で
+  // 戻ってくる。OAuth はページ全体の遷移で戻るので、初期値として読めば足りる。
+  const [message, setMessage] = useState<string | null>(() =>
+    params.get("google") === "ok" ? params.get("msg") : null,
+  );
+  const [error, setError] = useState<string | null>(() =>
+    params.get("google") === "error" ? params.get("msg") : null,
+  );
 
   const refresh = async () => {
     const [s, cs] = await Promise.all([fetchStatus(), fetchCalendars()]);
@@ -53,14 +59,9 @@ export function GoogleCalendarSettings() {
     setCalendars(cs);
   };
 
-  // /api/oauth/google/callback から ?google=ok&msg=... or ?google=error&msg=... で
-  // 戻ってくる。1 度表示したら URL から消す。
+  // 1 度表示したら URL から ?google / ?msg を消す。
   useEffect(() => {
-    const flag = params.get("google");
-    const msg = params.get("msg");
-    if (flag === "ok" && msg) setMessage(msg);
-    else if (flag === "error" && msg) setError(msg);
-    if (flag) {
+    if (params.get("google")) {
       const url = new URL(window.location.href);
       url.searchParams.delete("google");
       url.searchParams.delete("msg");
@@ -69,7 +70,15 @@ export function GoogleCalendarSettings() {
   }, [params]);
 
   useEffect(() => {
-    void refresh();
+    let ignore = false;
+    void Promise.all([fetchStatus(), fetchCalendars()]).then(([s, cs]) => {
+      if (ignore) return;
+      setStatus(s);
+      setCalendars(cs);
+    });
+    return () => {
+      ignore = true;
+    };
   }, []);
 
   const handleConnect = () => {

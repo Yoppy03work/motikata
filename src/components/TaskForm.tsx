@@ -67,10 +67,14 @@ export function TaskForm({
   const [googleCalendars, setGoogleCalendars] = useState<GoogleCalendarOption[]>([]);
   const [googleCalendarId, setGoogleCalendarId] = useState<number | null>(null);
 
-  // ymd prop が変わった場合(モーダルを開き直したケース等)は date を追従させる
-  useEffect(() => {
+  // ymd prop が変わった場合(モーダルを開き直したケース等)は date を追従させる。
+  // effect で setState すると余分な再描画になるので、描画中に前回の ymd と比べて調整する
+  // (React docs「props の変化に応じて state を調整する」のパターン)。
+  const [prevYmd, setPrevYmd] = useState(ymd);
+  if (ymd !== prevYmd) {
+    setPrevYmd(ymd);
     setDate(ymd);
-  }, [ymd]);
+  }
 
   // Google カレンダー連携状況の取得。マウント時に 1 度だけ。
   // 401 / 失敗時は空配列のまま (= セレクタ非表示)。

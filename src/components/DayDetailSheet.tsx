@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { fetchJsonOrNull } from "@/lib/fetchJson";
 import { format } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 import { ja } from "date-fns/locale/ja";
@@ -26,6 +27,14 @@ type Instance = {
   tags: { tag: { id: number; name: string; color: string | null } }[];
 };
 
+function fetchDayInstances(ymd: string) {
+  const q = new URLSearchParams({
+    from: `${ymd}T00:00:00+09:00`,
+    to: `${ymd}T23:59:59+09:00`,
+  });
+  return fetchJsonOrNull<{ instances: Instance[] }>(`/api/tasks?${q}`);
+}
+
 export function DayDetailSheet({
   open,
   onClose,
@@ -38,28 +47,42 @@ export function DayDetailSheet({
   onChanged?: () => void;
 }) {
   const [items, setItems] = useState<Instance[]>([]);
-  const [loading, setLoading] = useState(true);
+  // 最後に読み込みを終えた日。表示中の日と違えば「読み込み中」(loading は導出する)。
+  const [loadedYmd, setLoadedYmd] = useState<string | null>(null);
+  const loading = loadedYmd !== ymd;
   const [mode, setMode] = useState<"list" | "add-event" | "add-task">("list");
 
+  // シートは閉じてもマウントされたままなので、開き直したら一覧表示に戻して読み直す。
+  // effect で setState すると余分な再描画になるため、描画中に open の変化を見て調整する
+  // (React docs「props の変化に応じて state を調整する」のパターン)。
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) {
+      setMode("list");
+      setLoadedYmd(null);
+    }
+  }
+
+  // 追加・編集のあとの再読み込み(一覧は出したまま差し替える)
   const load = useCallback(async () => {
     if (!ymd) return;
-    setLoading(true);
-    const from = `${ymd}T00:00:00+09:00`;
-    const to = `${ymd}T23:59:59+09:00`;
-    const q = new URLSearchParams({ from, to });
-    const res = await fetch(`/api/tasks?${q}`);
-    if (res.ok) {
-      const { instances } = await res.json();
-      setItems(instances);
-    }
-    setLoading(false);
+    const body = await fetchDayInstances(ymd);
+    if (body) setItems(body.instances);
   }, [ymd]);
 
   useEffect(() => {
-    if (!open) return;
-    setMode("list");
-    void load();
-  }, [open, load]);
+    if (!open || !ymd) return;
+    let ignore = false;
+    void fetchDayInstances(ymd).then((body) => {
+      if (ignore) return;
+      if (body) setItems(body.instances);
+      setLoadedYmd(ymd);
+    });
+    return () => {
+      ignore = true;
+    };
+  }, [open, ymd]);
 
   useEffect(() => {
     if (!open) return;

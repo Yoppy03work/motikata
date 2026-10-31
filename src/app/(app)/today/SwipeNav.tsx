@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { PREF_SWIPE_NAV, readBoolPref } from "@/lib/prefs";
+import { PREF_SWIPE_NAV } from "@/lib/prefs";
+import { useBoolPref } from "@/lib/useLocalPref";
 
 // 横スワイプで前日/翌日に移動 + ページ切替アニメーション。
 // - pointerdown は root、pointermove / pointerup は window に付ける(子要素の
@@ -30,19 +31,11 @@ export function SwipeNav({
   nextYmd: string;
   children: React.ReactNode;
 }) {
-  const [enabled, setEnabled] = useState(false);
+  // 設定画面での切替(同じタブ)も別タブでの切替も反映される
+  const enabled = useBoolPref(PREF_SWIPE_NAV, false);
   const router = useRouter();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const innerRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    setEnabled(readBoolPref(PREF_SWIPE_NAV, false));
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === PREF_SWIPE_NAV) setEnabled(readBoolPref(PREF_SWIPE_NAV, false));
-    };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, []);
 
   // ポインタ操作 + コミット時の slide-out
   useEffect(() => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   addDays,
   addMonths,
@@ -93,14 +93,16 @@ export function MonthCalendar({
   // 翌月に切り替わる) で月を跨いだとき、cursor が以前の月のまま固まらない
   // ようにする。同月内の selectedYmd 変化では cursor を動かさない
   // (= ユーザーが手動で月送りした状態を壊さない)。
-  useEffect(() => {
-    setCursor((prev) => {
-      const sameMonth =
-        prev.getFullYear() === initialMonth.getFullYear() &&
-        prev.getMonth() === initialMonth.getMonth();
-      return sameMonth ? prev : initialMonth;
-    });
-  }, [initialMonth]);
+  // effect で setState すると余分な再描画になるので、描画中に前回の値と比べて調整する
+  // (React docs「props の変化に応じて state を調整する」のパターン)。
+  const [prevInitialMonth, setPrevInitialMonth] = useState(initialMonth);
+  if (initialMonth !== prevInitialMonth) {
+    setPrevInitialMonth(initialMonth);
+    const sameMonth =
+      cursor.getFullYear() === initialMonth.getFullYear() &&
+      cursor.getMonth() === initialMonth.getMonth();
+    if (!sameMonth) setCursor(initialMonth);
+  }
 
   const monthCells = useMemo(() => {
     const start = startOfWeek(startOfMonth(cursor), { weekStartsOn: 0 });

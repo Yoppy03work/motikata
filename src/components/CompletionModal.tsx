@@ -5,7 +5,7 @@
 // - 3.0 秒で自動 dismiss、タップ or 「閉じる」ボタンで即閉じる
 // - 連打されても直前のモーダルに上書きされる(key で再マウント)
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
 const PHRASES = [
   "お疲れさま!",
@@ -39,11 +39,11 @@ export function CompletionModal({
   seedKey: string;
   onClose: () => void;
 }) {
-  const [phrase, setPhrase] = useState("");
+  // seed から決まる純粋な計算なので state にせず描画中に求める
+  const phrase = pickPhrase(seedKey);
 
   useEffect(() => {
     if (!open) return;
-    setPhrase(pickPhrase(seedKey));
     const timer = setTimeout(() => onClose(), AUTO_CLOSE_MS);
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();

@@ -5,6 +5,7 @@
 // グリッド: 月-土 × 1-10限。複数限の授業は rowspan で連続セル占有。
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { fetchJsonOrNull } from "@/lib/fetchJson";
 import {
   currentFiscalYear,
   fiscalYearOf,
@@ -253,9 +254,19 @@ export function TimetableClient() {
     }
   }, []);
 
+  // 初回読み込み。loading の初期値は true なので、ここでは結果の反映だけをする
+  // (refresh() は保存後の再読み込み用)。
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    let ignore = false;
+    void fetchJsonOrNull<{ items?: Item[] }>("/api/classes").then((body) => {
+      if (ignore) return;
+      if (body) setItems(body.items ?? []);
+      setLoading(false);
+    });
+    return () => {
+      ignore = true;
+    };
+  }, []);
 
   // (dayOfWeek, period) → Item の引き当て + 占有判定。
   // 学期フィルタ後のアイテムだけ対象にする(以前は全期混在で同じセルに前期+後期が
@@ -497,32 +508,22 @@ function EditModal({
   const [form, setForm] = useState<FormState>(initial);
   // 持ち物 (ChecklistTemplate) — ClassSchedule の id があるときだけ管理可
   const [items, setItems] = useState<string[]>([""]);
-  const [itemsLoaded, setItemsLoaded] = useState(false);
+  // 新規なら読み込む持ち物は無いので最初から loaded。
+  // (モーダルは target ごとにマウントされるので、初期値で決めてよい。form と同じ)
+  const [itemsLoaded, setItemsLoaded] = useState(!target.existing);
 
   // 既存 schedule の場合は持ち物テンプレを取得
   useEffect(() => {
-    if (!target.existing) {
-      setItemsLoaded(true);
-      return;
-    }
+    if (!target.existing) return;
     let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch(`/api/classes/${target.existing!.id}/items`);
-        if (!res.ok) {
-          setItemsLoaded(true);
-          return;
-        }
-        const body = await res.json();
-        if (cancelled) return;
-        const labels: string[] = (body.items ?? []).map(
-          (it: { label: string }) => it.label,
-        );
-        setItems(labels.length > 0 ? labels : [""]);
-      } finally {
-        if (!cancelled) setItemsLoaded(true);
-      }
-    })();
+    void fetchJsonOrNull<{ items?: { label: string }[] }>(
+      `/api/classes/${target.existing.id}/items`,
+    ).then((body) => {
+      if (cancelled) return;
+      const labels = (body?.items ?? []).map((it) => it.label);
+      if (labels.length > 0) setItems(labels);
+      setItemsLoaded(true);
+    });
     return () => {
       cancelled = true;
     };
