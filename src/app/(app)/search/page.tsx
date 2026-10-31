@@ -8,6 +8,7 @@ import Link from "next/link";
 import { formatInTimeZone } from "date-fns-tz";
 import { APP_TZ } from "@/lib/tz";
 import { extractManabaUrl } from "@/lib/manabaUrl";
+import { AcademicKindBadge } from "@/components/AcademicKindBadge";
 
 type TaskHit = {
   id: number;
@@ -20,6 +21,7 @@ type TaskHit = {
   notes: string | null;
   source: string;
   sourceExternalId: string | null;
+  academicKind: string | null;
 };
 
 type NoteHit = {
@@ -128,6 +130,7 @@ export default function SearchPage() {
                       <span className="rounded-sm bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5">
                         {t.itemType === "EVENT" ? "予定" : t.required ? "必須" : "任意"}
                       </span>
+                      <AcademicKindBadge kind={t.academicKind} />
                       {t.status !== "OPEN" && (
                         <span className="rounded-sm bg-slate-300 dark:bg-slate-700 px-1.5 py-0.5">
                           {t.status === "DONE" ? "完了" : "スキップ"}

@@ -37,6 +37,7 @@ export async function GET(req: Request) {
         notes: true,
         source: true,
         sourceExternalId: true,
+        academicKind: true,
       },
       orderBy: { dueAt: "desc" },
       take: LIMIT,
