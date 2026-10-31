@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { fetchJsonOrNull } from "@/lib/fetchJson";
 import { buildRrule, parseRrule, rruleLabel } from "@/lib/rrule";
 
 type Item = {
@@ -96,9 +97,19 @@ export function TemplatesClient() {
     }
   }, []);
 
+  // 初回読み込み。loading の初期値は true なので、ここでは結果の反映だけをする
+  // (refresh() は保存後の再読み込み用)。
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    let ignore = false;
+    void fetchJsonOrNull<{ items?: Item[] }>("/api/templates").then((body) => {
+      if (ignore) return;
+      if (body) setItems(body.items ?? []);
+      setLoading(false);
+    });
+    return () => {
+      ignore = true;
+    };
+  }, []);
 
   const startNew = () => {
     setForm(DEFAULT_FORM);

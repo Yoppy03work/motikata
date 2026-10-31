@@ -1,6 +1,8 @@
 // テーマ管理(light / dark / system)。
 // localStorage に保存し、html.dark クラスを切り替える。
 
+import { notifyLocalPrefChange } from "./localPrefStore";
+
 export const THEME_KEY = "mochikata:theme";
 export type ThemeMode = "light" | "dark" | "system";
 
@@ -14,6 +16,7 @@ export function readTheme(): ThemeMode {
 export function writeTheme(mode: ThemeMode): void {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(THEME_KEY, mode);
+  notifyLocalPrefChange();
 }
 
 export function resolveTheme(mode: ThemeMode): "light" | "dark" {

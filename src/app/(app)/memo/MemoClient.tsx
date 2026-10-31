@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
+import { fetchJsonOrNull } from "@/lib/fetchJson";
 import { formatInTimeZone } from "date-fns-tz";
 import { ja } from "date-fns/locale/ja";
 import { APP_TZ } from "@/lib/tz";
@@ -27,7 +28,10 @@ const tabs: { key: Tab; label: string; caption: string }[] = [
 export function MemoClient() {
   const [tab, setTab] = useState<Tab>("inbox");
   const [notes, setNotes] = useState<Note[]>([]);
-  const [loading, setLoading] = useState(true);
+  // 最後に読み込みを終えたクエリ。表示中のクエリと違えば「読み込み中」。
+  // (タブ切替のたびに effect 内で setLoading(true) すると余分な再描画になるので、
+  //  loading は state にせず導出する)
+  const [loadedQuery, setLoadedQuery] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [pending, startTransition] = useTransition();
   const [includeArchived, setIncludeArchived] = useState(false);
@@ -38,22 +42,31 @@ export function MemoClient() {
     return formatInTimeZone(new Date(), APP_TZ, "yyyy-MM-dd");
   }, []);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const query = useMemo(() => {
     const q = new URLSearchParams({ tab });
     if (tab === "diary") q.set("date", todayStr);
     if (tab === "inbox" && includeArchived) q.set("includeArchived", "true");
-    const res = await fetch(`/api/memo?${q}`);
-    if (res.ok) {
-      const { notes } = await res.json();
-      setNotes(notes);
-    }
-    setLoading(false);
+    return q.toString();
   }, [tab, todayStr, includeArchived]);
+  const loading = loadedQuery !== query;
+
+  // 投稿・アーカイブ等のあとの再読み込み(一覧は出したまま差し替える)
+  const load = useCallback(async () => {
+    const body = await fetchJsonOrNull<{ notes: Note[] }>(`/api/memo?${query}`);
+    if (body) setNotes(body.notes);
+  }, [query]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    let ignore = false;
+    void fetchJsonOrNull<{ notes: Note[] }>(`/api/memo?${query}`).then((body) => {
+      if (ignore) return;
+      if (body) setNotes(body.notes);
+      setLoadedQuery(query);
+    });
+    return () => {
+      ignore = true;
+    };
+  }, [query]);
 
   const submit = () => {
     if (!draft.trim()) return;

@@ -4,6 +4,7 @@
 // 一覧 + 新規追加(名前 + カラー) + その場で編集削除。
 
 import { useCallback, useEffect, useState } from "react";
+import { fetchJsonOrNull } from "@/lib/fetchJson";
 
 type Tag = {
   id: number;
@@ -39,9 +40,19 @@ export function TagSettings() {
     }
   }, []);
 
+  // 初回読み込み。loading の初期値は true なので、ここでは結果の反映だけをする
+  // (refresh() は保存後の再読み込み用)。
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    let ignore = false;
+    void fetchJsonOrNull<{ tags?: Tag[] }>("/api/tags").then((body) => {
+      if (ignore) return;
+      if (body) setTags(body.tags ?? []);
+      setLoading(false);
+    });
+    return () => {
+      ignore = true;
+    };
+  }, []);
 
   const create = async () => {
     if (!newName.trim()) {

@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { PREF_SWIPE_NAV, readBoolPref, writeBoolPref } from "@/lib/prefs";
-import { applyTheme, readTheme, writeTheme, type ThemeMode } from "@/lib/theme";
+import { PREF_SWIPE_NAV, writeBoolPref } from "@/lib/prefs";
+import { applyTheme, writeTheme, type ThemeMode } from "@/lib/theme";
+import { useBoolPref, useThemePref } from "@/lib/useLocalPref";
 import { RepeatIcon } from "@/components/icons";
 import { AcademicImport } from "./AcademicImport";
 import { CitPortalSettings } from "./CitPortalSettings";
@@ -24,23 +25,15 @@ export default function SettingsPage() {
   const [pending, startTransition] = useTransition();
   const router = useRouter();
 
-  const [swipeNav, setSwipeNav] = useState(false);
-  const [theme, setTheme] = useState<ThemeMode>("system");
-
-  // localStorage は SSR 不可なのでマウント後に同期する
-  useEffect(() => {
-    setSwipeNav(readBoolPref(PREF_SWIPE_NAV, false));
-    setTheme(readTheme());
-  }, []);
+  // localStorage の値(書き込むとフック経由で再描画される)
+  const swipeNav = useBoolPref(PREF_SWIPE_NAV, false);
+  const theme = useThemePref();
 
   const toggleSwipeNav = () => {
-    const next = !swipeNav;
-    setSwipeNav(next);
-    writeBoolPref(PREF_SWIPE_NAV, next);
+    writeBoolPref(PREF_SWIPE_NAV, !swipeNav);
   };
 
   const changeTheme = (mode: ThemeMode) => {
-    setTheme(mode);
     writeTheme(mode);
     applyTheme(mode);
   };

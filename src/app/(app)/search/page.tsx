@@ -43,13 +43,19 @@ export default function SearchPage() {
   const [error, setError] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
 
-  useEffect(() => {
-    if (!q.trim()) {
+  // 入力が空になったら結果を消す(effect ではなく入力イベント側で行う。
+  // effect 内で同期的に setState すると余分な再描画になるため)
+  const changeQuery = (value: string) => {
+    setQ(value);
+    if (!value.trim()) {
       setTasks([]);
       setNotes([]);
       setHasSearched(false);
-      return;
     }
+  };
+
+  useEffect(() => {
+    if (!q.trim()) return;
     const ctrl = new AbortController();
     const handle = setTimeout(async () => {
       setPending(true);
@@ -91,7 +97,7 @@ export default function SearchPage() {
       <input
         type="search"
         value={q}
-        onChange={(e) => setQ(e.target.value)}
+        onChange={(e) => changeQuery(e.target.value)}
         placeholder="キーワード(例: レポート、数学、教科書)"
         autoFocus
         className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2.5 text-sm outline-hidden focus:ring-2 focus:ring-sky-500"

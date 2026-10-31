@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { isSyncStale } from "@/lib/syncStaleness";
+import { fetchJsonOrNull } from "@/lib/fetchJson";
 import dynamic from "next/dynamic";
 
 // QR スキャナはカメラ APIを使うので SSR 無効でクライアントのみロード。
@@ -37,18 +38,25 @@ export function CitPortalSettings() {
   const [message, setMessage] = useState<string | null>(null);
   const [showScanner, setShowScanner] = useState(false);
 
-  const refresh = useCallback(async () => {
-    const res = await fetch("/api/cit-portal/credentials");
-    if (res.ok) {
-      const body = await res.json();
-      setCred(body.credential);
-      if (!body.credential) setEditing(true);
-    }
+  const applyCredential = useCallback((body: { credential: CredentialState } | null) => {
+    if (!body) return;
+    setCred(body.credential);
+    if (!body.credential) setEditing(true);
   }, []);
 
+  const refresh = useCallback(async () => {
+    applyCredential(await fetchJsonOrNull<{ credential: CredentialState }>("/api/cit-portal/credentials"));
+  }, [applyCredential]);
+
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    let ignore = false;
+    void fetchJsonOrNull<{ credential: CredentialState }>("/api/cit-portal/credentials").then((body) => {
+      if (!ignore) applyCredential(body);
+    });
+    return () => {
+      ignore = true;
+    };
+  }, [applyCredential]);
 
   const save = async () => {
     if (!username || !password || !totpSecret) {

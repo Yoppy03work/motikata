@@ -7,6 +7,7 @@
 //   3) ICS アップロード(副、折りたたみ)
 
 import { useCallback, useEffect, useState } from "react";
+import { fetchJsonOrNull } from "@/lib/fetchJson";
 
 type Preview = {
   title: string;
@@ -64,8 +65,14 @@ export function AcademicImport() {
   }, []);
 
   useEffect(() => {
-    void refreshStatus();
-  }, [refreshStatus]);
+    let ignore = false;
+    void fetchJsonOrNull<Status>("/api/academic/status").then((body) => {
+      if (!ignore && body) setStatus(body);
+    });
+    return () => {
+      ignore = true;
+    };
+  }, []);
 
   const reset = () => {
     setMode(null);
