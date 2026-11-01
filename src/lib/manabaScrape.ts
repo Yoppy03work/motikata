@@ -326,6 +326,29 @@ export function parseAssignmentsHtml(html: string, base: string): ManabaAssignme
   return out;
 }
 
+// 課題詳細ページの「状態」欄から提出状況を読む(2026年11月確認)。
+//   <th>状態</th><td>受付終了 <br><strong>提出済み</strong></td>
+//   <th>状態</th><td>受付中 <br><span class=deadline>まだ提出していません。</span></td>
+// レポート / 小テスト / アンケート / 外部ツール(lti)で共通。説明文に
+// 「未提出」等が書かれていることがあるので、必ず「状態」のセルだけを見る。
+export type ManabaSubmissionState = "submitted" | "unsubmitted" | "unknown";
+
+export function parseSubmissionState(html: string): ManabaSubmissionState {
+  const $ = cheerio.load(html);
+  let state: ManabaSubmissionState = "unknown";
+  $("th").each((_, th) => {
+    if ($(th).text().trim() !== "状態") return;
+    const text = $(th).next("td").text().replace(/\s+/g, "");
+    if (text.includes("まだ提出していません") || text.includes("未提出")) {
+      state = "unsubmitted";
+    } else if (text.includes("提出済み")) {
+      state = "submitted";
+    }
+    return false;
+  });
+  return state;
+}
+
 // 課題一覧ページの候補 URL。manaba のバージョンによって path が変わるため、
 // 順に試して 200 を返す最初のものを採用する。
 // CIT manaba は /ct/home_library_query が実体(2026年4月確認)。
@@ -338,15 +361,16 @@ const ASSIGNMENT_URL_CANDIDATES = [
   "/ct/mypage_published_report",
 ];
 
-async function findAssignmentsUrl(jar: HostCookieJar, base: string): Promise<string> {
+async function findAssignmentsUrl(session: ManabaSession): Promise<string> {
+  const { base } = session;
   // 既知の候補 URL を順に試行。最初に 200 を返したものを採用。
   for (const path of ASSIGNMENT_URL_CANDIDATES) {
     const url = `${base}${path}`;
-    const res = await manabaFetch(jar, url);
+    const res = await session.fetch(url);
     if (res.ok) return url;
   }
   // どれも当たらなければ /ct/home の HTML から動的にリンクを探す
-  const homeRes = await manabaFetch(jar, `${base}/ct/home`);
+  const homeRes = await session.fetch(`${base}/ct/home`);
   if (homeRes.ok) {
     const $ = cheerio.load(await homeRes.text());
     let bestHref: string | null = null;
@@ -368,18 +392,45 @@ async function findAssignmentsUrl(jar: HostCookieJar, base: string): Promise<str
   );
 }
 
+// ログイン済みセッション。一覧取得のあと、同じログインで課題詳細ページも開く。
+export type ManabaSession = {
+  base: string;
+  fetch: (url: string) => Promise<Response>;
+};
+
+export async function openManabaSession(
+  username: string,
+  password: string,
+): Promise<ManabaSession> {
+  const base = resolveBase();
+  if (!username || !password) throw new ManabaError("認証情報が空です", "config");
+  const jar: HostCookieJar = new Map();
+  await login(jar, base, username, password);
+  const origin = new URL(base).origin;
+  return {
+    base,
+    fetch: (url) => {
+      // 認証 cookie を manaba 以外へ送らないよう、manaba 本体の URL に限定する
+      if (new URL(url).origin !== origin) {
+        throw new ManabaError(`manaba 外の URL は開きません: ${url}`, "fetch");
+      }
+      return manabaFetch(jar, url);
+    },
+  };
+}
+
 export async function fetchManabaAssignments(
   username: string,
   password: string,
 ): Promise<ManabaAssignment[]> {
-  const base = resolveBase();
-  if (!username || !password) throw new ManabaError("認証情報が空です", "config");
-  const jar: HostCookieJar = new Map();
+  return fetchAssignmentsWith(await openManabaSession(username, password));
+}
 
-  await login(jar, base, username, password);
-
-  const fetchUrl = await findAssignmentsUrl(jar, base);
-  const res = await manabaFetch(jar, fetchUrl);
+export async function fetchAssignmentsWith(
+  session: ManabaSession,
+): Promise<ManabaAssignment[]> {
+  const fetchUrl = await findAssignmentsUrl(session);
+  const res = await session.fetch(fetchUrl);
   if (!res.ok) {
     throw new ManabaError(
       `課題一覧取得失敗 (HTTP ${res.status}) url=${fetchUrl}`,
@@ -387,6 +438,5 @@ export async function fetchManabaAssignments(
     );
   }
   const html = await res.text();
-  const assignments = parseAssignmentsHtml(html, base);
-  return assignments;
+  return parseAssignmentsHtml(html, session.base);
 }
