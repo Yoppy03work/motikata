@@ -56,6 +56,10 @@ enum TaskSource {
 enum ReminderChannel {
   SLACK
   PUSH
+  DISCORD
+  LINE
+  // 設定画面で ON にしている通知先すべて
+  ALL
 }
 
 enum ReminderStatus {
@@ -425,6 +429,17 @@ model PushSubscription {
   auth      String
   userAgent String?
   createdAt DateTime @default(now())
+}
+
+// 利用者が設定画面で登録する外部通知先(SLACK / DISCORD / LINE)。
+// Web Push はブラウザごとの PushSubscription で管理するのでここには無い。
+// configEnc は webhook URL / LINE のトークン等を JSON にして暗号化したもの。
+model NotifyChannel {
+  kind      String   @id
+  enabled   Boolean  @default(true)
+  configEnc String
+  lastError String?
+  updatedAt DateTime @updatedAt
 }
 
 model Setting {

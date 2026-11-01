@@ -1,12 +1,13 @@
-// Phase 14e: Slack 健全性アラートのメッセージ組み立て (テスタブル分離)。
+// Phase 14e: 同期の健全性アラートのメッセージ組み立て (テスタブル分離)。
 //
-// 各 source の最新 lastError をリスト化して 1 通の Slack message にする。
+// 各 source の最新 lastError をリスト化して 1 通のメッセージにする。
 // 件数が多い場合の truncate (Slack の payload 上限) は max 10 件で打ち切り、
 // 末尾に「他 N 件」を付ける。
 
 import { formatInTimeZone } from "date-fns-tz";
 import { APP_TZ } from "./tz";
-import type { SlackMessage } from "./slack";
+// 通知本文のテキスト。notify.deliver で各通知先へ送る
+type AlertMessage = { text: string };
 
 export type HealthAlertEntry = {
   source: string;
@@ -19,7 +20,7 @@ const MAX_DETAIL_CHARS = 200;
 
 export function buildHealthAlertMessage(
   entries: HealthAlertEntry[],
-): SlackMessage {
+): AlertMessage {
   const shown = entries.slice(0, MAX_ENTRIES);
   const omitted = Math.max(0, entries.length - MAX_ENTRIES);
   const lines = shown.map((e) => {

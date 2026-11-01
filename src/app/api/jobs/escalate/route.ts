@@ -3,7 +3,7 @@
 // 仕様:
 //   - 対象: 今日(JST)の 0:00〜23:59 に dueAt が入っていて、status=OPEN の TaskInstance
 //   - itemType=TASK のみ(EVENT は対象外)
-//   - 各タスクに対し、即時発火する Reminder (channel=PUSH, escalationLevel=1) を1件追加
+//   - 各タスクに対し、即時発火する Reminder (channel=ALL = 設定で ON の通知先すべて, escalationLevel=1) を1件追加
 //     dispatchReminders cron(毎分)が拾って Push を送る
 //   - dedupeKey で重複防止: "esc:<instanceId>:<ymd>"
 //
@@ -60,7 +60,7 @@ export async function POST(req: Request) {
           data: {
             instanceId: t.id,
             remindAt: now,
-            channel: "PUSH",
+            channel: "ALL",
             escalationLevel: 1,
             status: "PENDING",
             dedupeKey,

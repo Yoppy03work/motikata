@@ -1,17 +1,17 @@
 // Phase 14e: 各種同期 (manaba / CIT ポータル / Google) の lastError を集約して
-// Slack に通知する。日次 cron (alert-sync-failures) から呼び出される想定。
+// 設定画面で ON にした通知先すべてに通知する。日次 cron (alert-sync-failures) から呼び出される想定。
 //
 // 設計:
 // - 各 credential テーブル (ManabaCredential / CitPortalCredential /
 //   GoogleCredential) と GoogleCalendar の lastError が non-null な行を
-//   集めて 1 つの Slack メッセージにまとめる
-// - Slack 未設定なら no-op
+//   集めて 1 つのメッセージにまとめる
+// - 通知先が 1 つも無ければ no-op
 // - エラーが 1 件もなければ通知を送らない (= 静かな成功)
 // - スパム抑制は cron 頻度 (daily) で十分とみなす
 
 import { prisma } from "./db";
 import { buildHealthAlertMessage, type HealthAlertEntry } from "./syncHealthAlertMessage";
-import { isSlackEnabled, sendSlackMessage } from "./slack";
+import { deliver, enabledKinds } from "./notify";
 
 export type AlertResult = {
   ok: boolean;
@@ -21,7 +21,7 @@ export type AlertResult = {
 };
 
 export async function runSyncFailureAlert(): Promise<AlertResult> {
-  if (!isSlackEnabled()) {
+  if ((await enabledKinds()).length === 0) {
     return { ok: true, sent: false, failureCount: 0 };
   }
 
@@ -81,15 +81,12 @@ export async function runSyncFailureAlert(): Promise<AlertResult> {
   }
 
   const msg = buildHealthAlertMessage(entries);
-  try {
-    await sendSlackMessage(msg);
-    return { ok: true, sent: true, failureCount: entries.length };
-  } catch (e) {
-    return {
-      ok: false,
-      sent: false,
-      failureCount: entries.length,
-      error: e instanceof Error ? e.message : "unknown",
-    };
-  }
+  const result = await deliver("ALL", { title: "同期エラーがあります", body: msg.text, url: "/settings" });
+  if (result.kind === "sent") return { ok: true, sent: true, failureCount: entries.length };
+  return {
+    ok: result.kind === "skipped",
+    sent: false,
+    failureCount: entries.length,
+    error: result.kind === "failed" ? result.error : undefined,
+  };
 }

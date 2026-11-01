@@ -3,7 +3,15 @@
 import { useEffect, useState, useTransition } from "react";
 
 type Priority = "LOW" | "MID" | "HIGH";
-type Channel = "PUSH" | "SLACK";
+type Channel = "ALL" | "PUSH" | "SLACK" | "DISCORD" | "LINE";
+
+const CHANNEL_OPTIONS: { value: Channel; label: string }[] = [
+  { value: "ALL", label: "すべて" },
+  { value: "PUSH", label: "ブラウザ" },
+  { value: "SLACK", label: "Slack" },
+  { value: "DISCORD", label: "Discord" },
+  { value: "LINE", label: "LINE" },
+];
 type ReminderPreset = "none" | "at" | "m15" | "h1" | "d1";
 
 // /settings で連携した Google カレンダーのうち enabled=true のもの。
@@ -54,7 +62,7 @@ export function TaskForm({
   const [priority, setPriority] = useState<Priority>("MID");
   const [required, setRequired] = useState(true);
   const [preset, setPreset] = useState<ReminderPreset>(itemType === "EVENT" ? "m15" : "h1");
-  const [channel, setChannel] = useState<Channel>("PUSH");
+  const [channel, setChannel] = useState<Channel>("ALL");
   const [checklist, setChecklist] = useState<string[]>([""]);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -451,16 +459,16 @@ export function TaskForm({
         </div>
         {preset !== "none" && (
           <div className="mt-2 flex gap-1 rounded-lg bg-slate-100 dark:bg-slate-900 p-1">
-            {(["PUSH", "SLACK"] as Channel[]).map((c) => (
+            {CHANNEL_OPTIONS.map((c) => (
               <button
                 type="button"
-                key={c}
-                onClick={() => setChannel(c)}
+                key={c.value}
+                onClick={() => setChannel(c.value)}
                 className={`flex-1 rounded-md py-1.5 text-xs ${
-                  channel === c ? "bg-slate-300 dark:bg-slate-700 text-slate-900 dark:text-slate-100" : "text-slate-600 dark:text-slate-400"
+                  channel === c.value ? "bg-slate-300 dark:bg-slate-700 text-slate-900 dark:text-slate-100" : "text-slate-600 dark:text-slate-400"
                 }`}
               >
-                {c === "PUSH" ? "アプリ通知" : "Slack"}
+                {c.label}
               </button>
             ))}
           </div>

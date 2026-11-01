@@ -24,7 +24,7 @@ function urlBase64ToBytes(base64: string): ArrayBuffer {
   return buf;
 }
 
-export function PushSettings() {
+export function PushSettings({ onChange }: { onChange?: () => void } = {}) {
   const [state, setState] = useState<PushState>("loading");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -81,12 +81,12 @@ export function PushSettings() {
       const reg = await navigator.serviceWorker.ready;
       const keyRes = await fetch("/api/push/vapid-public-key");
       if (!keyRes.ok) {
-        setError("VAPID 鍵の取得に失敗しました(.env を確認)");
+        setError("通知用の鍵の取得に失敗しました");
         return;
       }
       const { publicKey } = await keyRes.json();
       if (!publicKey) {
-        setError("VAPID_PUBLIC_KEY が空です");
+        setError("通知用の鍵が空です");
         return;
       }
       const sub = await reg.pushManager.subscribe({
@@ -119,6 +119,7 @@ export function PushSettings() {
         return;
       }
       setState("on");
+      onChange?.();
     } catch (e) {
       setError(e instanceof Error ? e.message : "通知の有効化に失敗しました");
     } finally {
@@ -142,6 +143,7 @@ export function PushSettings() {
         });
       }
       setState("off");
+      onChange?.();
     } catch (e) {
       setError(e instanceof Error ? e.message : "解除に失敗しました");
     } finally {
@@ -151,11 +153,6 @@ export function PushSettings() {
 
   return (
     <div>
-      <p className="mb-2 text-xs text-slate-500">
-        スマホ・PC のロック画面に通知が出ます。タスク作成時に
-        「通知 = アプリ通知」を選んだリマインダーで使用されます。
-      </p>
-
       {state === "loading" && (
         <p className="text-xs text-slate-500">確認中…</p>
       )}
@@ -177,13 +174,13 @@ export function PushSettings() {
           disabled={pending}
           className="w-full rounded-md bg-sky-500 py-2 text-sm font-medium text-white disabled:opacity-50 hover:bg-sky-600"
         >
-          {pending ? "設定中..." : "通知を有効にする"}
+          {pending ? "設定中..." : "このブラウザで通知を受け取る"}
         </button>
       )}
       {state === "on" && (
         <div className="flex items-center gap-2">
           <span className="flex-1 rounded-md bg-sky-500/10 border border-sky-500/30 px-3 py-2 text-xs text-sky-700 dark:text-sky-300">
-            通知は有効です
+            このブラウザで受け取ります
           </span>
           <button
             type="button"

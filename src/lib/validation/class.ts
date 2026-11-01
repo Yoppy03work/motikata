@@ -7,6 +7,7 @@ import {
   MAX_REMINDERS,
   MAX_CHECKLIST_ITEMS,
 } from "@/lib/id";
+import { ReminderChannel } from "./enums";
 
 const HHmm = z.string().regex(/^\d{2}:\d{2}$/, "HH:mm 形式で入力してください");
 
@@ -33,7 +34,7 @@ const ClassFields = z.object({
   reminders: z.array(
     z.object({
       offsetMin: zOffsetMin,
-      channel: z.enum(["SLACK", "PUSH"]),
+      channel: ReminderChannel,
     }),
   ).max(MAX_REMINDERS),
 });
@@ -42,8 +43,8 @@ export const ClassCreateInput = ClassFields.extend({
   tagIds: ClassFields.shape.tagIds.default([]),
   checklist: ClassFields.shape.checklist.default([]),
   reminders: ClassFields.shape.reminders.default([
-    { offsetMin: -60, channel: "PUSH" },
-    { offsetMin: -15, channel: "PUSH" },
+    { offsetMin: -60, channel: "ALL" },
+    { offsetMin: -15, channel: "ALL" },
   ]),
 });
 export type ClassCreateInput = z.infer<typeof ClassCreateInput>;

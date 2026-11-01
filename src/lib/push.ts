@@ -5,17 +5,65 @@
 import webpush from "web-push";
 import { prisma } from "@/lib/db";
 import { isAllowedPushEndpoint } from "@/lib/pushEndpoint";
+import { decryptNotifySecret, encryptNotifySecret } from "@/lib/notifyCrypto";
 
-let configured = false;
-function configureIfNeeded(): boolean {
-  if (configured) return true;
+// VAPID 鍵: .env (VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY) があればそれを使い、
+// 無ければ初回に自動生成して Setting に保存する(秘密鍵は暗号化)。
+// 利用者が .env を触らなくても設定画面の「通知を有効にする」だけで使えるようにするため。
+const VAPID_SETTING_KEY = "vapid_keys";
+
+type VapidKeys = { publicKey: string; privateKey: string };
+
+let cached: VapidKeys | null = null;
+
+async function loadVapidKeys(): Promise<VapidKeys> {
+  if (cached) return cached;
   const pub = process.env.VAPID_PUBLIC_KEY;
   const priv = process.env.VAPID_PRIVATE_KEY;
-  const subj = process.env.VAPID_SUBJECT || "mailto:noreply@example.com";
-  if (!pub || !priv) return false;
-  webpush.setVapidDetails(subj, pub, priv);
-  configured = true;
-  return true;
+  if (pub && priv) {
+    cached = { publicKey: pub, privateKey: priv };
+    return cached;
+  }
+  const read = async () => {
+    const row = await prisma.setting.findUnique({ where: { key: VAPID_SETTING_KEY } });
+    const v = row?.value as { publicKey?: string; privateKeyEnc?: string } | undefined;
+    if (!v?.publicKey || !v.privateKeyEnc) return null;
+    return { publicKey: v.publicKey, privateKey: decryptNotifySecret(v.privateKeyEnc) };
+  };
+  let keys = await read();
+  if (!keys) {
+    const gen = webpush.generateVAPIDKeys();
+    try {
+      await prisma.setting.create({
+        data: {
+          key: VAPID_SETTING_KEY,
+          value: { publicKey: gen.publicKey, privateKeyEnc: encryptNotifySecret(gen.privateKey) },
+        },
+      });
+      keys = gen;
+    } catch {
+      // 並行リクエストが先に作った場合はそちらを使う
+      keys = await read();
+      if (!keys) throw new Error("VAPID 鍵を保存できませんでした");
+    }
+  }
+  cached = keys;
+  return keys;
+}
+
+async function configureIfNeeded(): Promise<boolean> {
+  try {
+    const keys = await loadVapidKeys();
+    const subj = process.env.VAPID_SUBJECT || "mailto:noreply@example.com";
+    webpush.setVapidDetails(subj, keys.publicKey, keys.privateKey);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function getVapidPublicKey(): Promise<string> {
+  return (await loadVapidKeys()).publicKey;
 }
 
 export type PushPayload = {
@@ -38,8 +86,8 @@ export async function isPushConfigured(): Promise<boolean> {
 
 /** 保存されている全 PushSubscription にメッセージを送る。 */
 export async function sendPushToAll(payload: PushPayload): Promise<PushSendResult> {
-  if (!configureIfNeeded()) {
-    throw new Error("VAPID keys not configured (VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY)");
+  if (!(await configureIfNeeded())) {
+    throw new Error("VAPID 鍵を用意できませんでした");
   }
   const subs = await prisma.pushSubscription.findMany();
   // PUSH_HIDE_PAYLOAD=true のときはペイロードを送らず、SW 側で汎用通知にする運用も可

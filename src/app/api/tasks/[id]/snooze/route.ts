@@ -45,7 +45,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
       });
       const nextLevel = (max._max.escalationLevel ?? -1) + 1;
       const remindAt = new Date(Date.now() + SNOOZE_MINUTES * 60_000);
-      const channel = "PUSH" as const;
+      const channel = "ALL" as const;
       const dedupeKey = `${id}:${remindAt.toISOString()}:${channel}:${nextLevel}`;
 
       const reminder = await tx.reminder.create({
