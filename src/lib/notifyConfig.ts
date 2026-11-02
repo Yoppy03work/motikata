@@ -69,6 +69,8 @@ export type NotifyMessage = {
   body: string;
   url?: string;
   tag?: string;
+  // ブラウザ通知に「完了」「30 分後」ボタンを付けるタスク(Slack 等の文面には使わない)
+  taskId?: number;
 };
 
 export function toPlainText(msg: NotifyMessage): string {

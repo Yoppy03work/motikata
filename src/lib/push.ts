@@ -71,6 +71,8 @@ export type PushPayload = {
   body: string;
   url?: string;
   tag?: string;
+  // あると Service Worker が「完了」「30 分後」ボタンを付ける
+  taskId?: number;
 };
 
 export type PushSendResult = {

@@ -171,6 +171,7 @@ export async function sendVia(
       body: msg.body,
       url: msg.url ?? "/today",
       tag: msg.tag,
+      taskId: msg.taskId,
     });
     if (result.total === 0) throw new NotifyNotConfigured(kind);
     if (result.delivered === 0) throw new Error(`push delivery failed (failed=${result.failed})`);
