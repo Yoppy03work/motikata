@@ -151,6 +151,18 @@ cron.schedule("* * * * *", () => {
   });
 });
 
+// attendance-tick: 毎分。auto モードの出席を授業開始5分前ウィンドウで評価する。
+// フェーズ A では ATTENDANCE_AUTO_EXECUTION_ENABLED 未設定のため dark (送信せず監査のみ)。
+// manual/confirm は UI からのユーザー操作で完結するのでこの tick は使わない。
+let attendanceInFlight = false;
+cron.schedule("* * * * *", () => {
+  if (attendanceInFlight) return;
+  attendanceInFlight = true;
+  void callJob("/api/jobs/attendance-tick", "attendance-tick").finally(() => {
+    attendanceInFlight = false;
+  });
+});
+
 // escalate: 毎朝 07:00 JST。
 // 当日中(同日)に締切がある status=OPEN な TASK に対して
 // 即時発火 Reminder (PUSH) を作成する。dispatchReminders が拾って実送信する

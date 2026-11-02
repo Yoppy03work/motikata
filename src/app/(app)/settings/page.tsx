@@ -9,6 +9,7 @@ import { useBoolPref, useThemePref } from "@/lib/useLocalPref";
 import { RepeatIcon } from "@/components/icons";
 import { AcademicImport } from "./AcademicImport";
 import { CitPortalSettings } from "./CitPortalSettings";
+import { AttendanceSettings } from "./AttendanceSettings";
 import { DeadlineAlertSettings } from "./DeadlineAlertSettings";
 import { PwaInstallPrompt } from "@/components/PwaInstallPrompt";
 import { GoogleCalendarSettings } from "./GoogleCalendarSettings";
@@ -162,6 +163,13 @@ export default function SettingsPage() {
             CITポータル 連携 (時間割)
           </h2>
           <CitPortalSettings />
+        </div>
+
+        <div className="rounded-xl border border-slate-200 bg-slate-100 p-4 dark:border-slate-800 dark:bg-slate-900">
+          <h2 className="mb-2 text-sm font-medium text-slate-700 dark:text-slate-300">
+            出席
+          </h2>
+          <AttendanceSettings />
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-slate-100 p-4 dark:border-slate-800 dark:bg-slate-900">

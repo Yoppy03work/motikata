@@ -11,6 +11,7 @@ import { CalendarIcon } from "@/components/icons";
 import { TodayItemCard } from "./TodayItemCard";
 import { DateNav } from "./DateNav";
 import { SwipeNav } from "./SwipeNav";
+import { TodayAttendance } from "./TodayAttendance";
 import type { TodayItem } from "./types";
 
 export const dynamic = "force-dynamic";
@@ -181,6 +182,8 @@ export default async function TodayPage({
       )}
 
       {nextUp && <NextUpCard item={nextUp} now={now} />}
+
+      {isToday && <TodayAttendance />}
 
       <div className="mt-5 space-y-10">
         {PrimarySection}
