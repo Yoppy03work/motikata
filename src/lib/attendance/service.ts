@@ -28,8 +28,9 @@ import {
   ATTENDANCE_SETTING_KEY,
   normalizeAttendanceSettings,
   type AttendanceMode,
+  type AttendanceSettings,
 } from "./settings";
-import { isAutoExecutionEnabled, isAutoDryRun } from "./rollout";
+import { isAutoDryRun } from "./rollout";
 
 type ClassRow = {
   id: number;
@@ -75,18 +76,83 @@ export async function hasCitCredentials(): Promise<boolean> {
   return row !== null;
 }
 
-/** 出席モード (Setting key="attendance")。未設定/壊れた値は confirm。 */
-export async function getAttendanceMode(): Promise<AttendanceMode> {
+/** 出席設定 (Setting key="attendance")。未設定/壊れた値は { confirm, 未解禁 }。 */
+export async function getAttendanceSettings(): Promise<AttendanceSettings> {
   const row = await prisma.setting.findUnique({ where: { key: ATTENDANCE_SETTING_KEY } });
-  return normalizeAttendanceSettings(row?.value).mode;
+  return normalizeAttendanceSettings(row?.value);
 }
 
-export async function setAttendanceMode(mode: AttendanceMode): Promise<void> {
+/** 出席モード。 */
+export async function getAttendanceMode(): Promise<AttendanceMode> {
+  return (await getAttendanceSettings()).mode;
+}
+
+/**
+ * 出席モードを保存する。autoUnlocked は auto 実行の解禁フラグ (開発者コード検証済みのとき true)。
+ * mode を auto 以外にするときは必ず未解禁に戻す (再度 auto にするにはコード再入力)。
+ */
+export async function setAttendanceMode(
+  mode: AttendanceMode,
+  autoUnlocked = false,
+): Promise<void> {
+  const value = { mode, autoUnlocked: mode === "auto" ? autoUnlocked : false };
   await prisma.setting.upsert({
     where: { key: ATTENDANCE_SETTING_KEY },
-    create: { key: ATTENDANCE_SETTING_KEY, value: { mode } },
-    update: { value: { mode } },
+    create: { key: ATTENDANCE_SETTING_KEY, value },
+    update: { value },
   });
+}
+
+// claim が「送信中」とみなす pending 行の鮮度しきい値。adapter の各 fetch は最大 10s で、
+// フロー全体でも ~40s 以内に終わる。これを超えて pending のままなら送信途中で落ちた
+// 残骸とみなし、再送信を許す (Wi-Fi 瞬断やプロセス落ちで当日ロックされるのを防ぐ)。
+const STALE_CLAIM_MS = 2 * 60 * 1000;
+
+type ClaimResult = "claimed" | "already_success" | "in_progress";
+
+/**
+ * (classScheduleId, classDate, method) の pending 行を確保する。
+ *   - 既存が success/manual → already_success (再送信しない)
+ *   - 既存が pending かつ新しい → in_progress (本当に送信中)
+ *   - 既存が failed / 古い pending → 再 claim して "claimed"
+ *   - 既存なし → create。レース (P2002) は in_progress
+ */
+async function claimAttendance(
+  classScheduleId: number,
+  classDate: string,
+  method: "confirm" | "auto",
+  now: Date,
+): Promise<ClaimResult> {
+  const where = {
+    classScheduleId_classDate_method: { classScheduleId, classDate, method },
+  };
+  const existing = await prisma.attendanceLog.findUnique({
+    where,
+    select: { status: true, attemptedAt: true },
+  });
+  if (!existing) {
+    try {
+      await prisma.attendanceLog.create({
+        data: { classScheduleId, classDate, method, status: "pending" },
+      });
+      return "claimed";
+    } catch {
+      return "in_progress"; // レース (同時 create)
+    }
+  }
+  if (existing.status === "success" || existing.status === "manual") {
+    return "already_success";
+  }
+  const fresh = now.getTime() - existing.attemptedAt.getTime() < STALE_CLAIM_MS;
+  if (existing.status === "pending" && fresh) {
+    return "in_progress";
+  }
+  // failed / 古い pending → 再 claim
+  await prisma.attendanceLog.update({
+    where,
+    data: { status: "pending", attemptedAt: now, errorDetail: null },
+  });
+  return "claimed";
 }
 
 /** 今日(JST) に有効な ClassSchedule 行 (曜日一致 + 有効期間内) を period 昇順で返す。 */
@@ -211,19 +277,17 @@ export async function submitConfirm(
     return { ok: false, reason: guard.reason, message: guardMessage(guard.reason) };
   }
 
-  // claim: pending 行を unique 制約で確保 (二重送信防止)。
-  try {
-    await prisma.attendanceLog.create({
-      data: {
-        classScheduleId: cls.id,
-        classDate: input.classDateYmd,
-        method: "confirm",
-        status: "pending",
-      },
-    });
-  } catch {
-    // P2002 (既に confirm 行がある) = 送信中 or 済み。安全側で停止。
-    return { ok: false, reason: "in_progress", message: "送信処理中です" };
+  // claim: pending 行を確保 (二重送信防止)。失敗済み / 古い pending は再送信を許す。
+  const claim = await claimAttendance(cls.id, input.classDateYmd, "confirm", now);
+  if (claim === "already_success") {
+    return { ok: true, alreadyDone: true, message: "このコマは出席済みです" };
+  }
+  if (claim === "in_progress") {
+    return {
+      ok: false,
+      reason: "in_progress",
+      message: "送信処理中です。少し待って再試行してください",
+    };
   }
 
   await writeAudit({
@@ -303,7 +367,7 @@ function guardMessage(reason: string): string {
     case "room_mismatch":
       return "QR の教室が授業の教室と一致しません";
     case "outside_time_window":
-      return "出席できる時間帯ではありません (開始5分前前後)";
+      return "出席できる時間帯ではありません (授業開始10分前〜開始60分後)";
     case "already_submitted":
       return "このコマは出席済みです";
     case "credentials_not_registered":
@@ -317,16 +381,21 @@ function guardMessage(reason: string): string {
 
 /**
  * auto ティック (node-cron から毎分呼ばれる job が実行)。
- * フェーズ A では isAutoExecutionEnabled()=false のため pre-network で skipped に倒れ、
- * 監査ログに残すだけで一切送信しない (dark)。フェーズ B の env 解禁で実送信が生きる。
+ * auto は「開発者コードで解禁済み (autoUnlocked) かつ mode==='auto'」のときだけ実行される。
+ * それ以外 (= 既定) は即 return して完全に dark (監査ログすら書かない・外部アクセスなし)。
  */
 export async function runAutoTick(now: Date = new Date()): Promise<{
   examined: number;
   attempted: number;
   skipped: number;
 }> {
-  const mode = await getAttendanceMode();
-  const autoEnabled = isAutoExecutionEnabled();
+  const settings = await getAttendanceSettings();
+  const mode = settings.mode;
+  const autoEnabled = mode === "auto" && settings.autoUnlocked;
+  // auto 未解禁なら何もしない。開発者コードで解禁するまで完全に止まっている。
+  if (!autoEnabled) {
+    return { examined: 0, attempted: 0, skipped: 0 };
+  }
   const today = await getTodayClasses(now);
   const jst = getJstParts(now);
 
@@ -437,16 +506,8 @@ export async function runAutoTick(now: Date = new Date()): Promise<{
     }
 
     // 実送信 (claim → attend → log)
-    try {
-      await prisma.attendanceLog.create({
-        data: {
-          classScheduleId: cls.id,
-          classDate: classDateYmd,
-          method: "auto",
-          status: "pending",
-        },
-      });
-    } catch {
+    const claim = await claimAttendance(cls.id, classDateYmd, "auto", now);
+    if (claim !== "claimed") {
       skipped++;
       continue;
     }
