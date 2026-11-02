@@ -111,7 +111,9 @@ export function ManabaSettings() {
           ((body.submitted ?? 0) > 0 ? ` / 提出済み ${body.submitted} 件を完了に` : "") +
           ((body.pastSkipped ?? 0) > 0
             ? ` / 過去 ${body.pastSkipped} 件は除外`
-            : ""),
+            : "") +
+          ((body.news?.inserted ?? 0) > 0 ? ` / コースニュース ${body.news.inserted} 件` : "") +
+          (body.news?.error ? ` / コースニュースの取得に失敗: ${body.news.error}` : ""),
       );
       await refresh();
     } finally {
@@ -243,6 +245,11 @@ export function ManabaSettings() {
         </div>
       )}
 
+      {cred && (
+        <a href="/news" className="inline-block text-xs text-sky-600 underline-offset-2 hover:underline dark:text-sky-400">
+          コースニュースの一覧を見る
+        </a>
+      )}
       {error && <p className="text-xs text-rose-500">{error}</p>}
       {message && <p className="text-xs text-sky-500">{message}</p>}
     </div>
