@@ -20,6 +20,9 @@ if (!JOBS_TOKEN) {
 // 拡張してあるので、worker 側は余裕を持って 180s。
 const JOB_TIMEOUT_MS = 180_000;
 
+// 毎分動く job。空振り(何もしなかった)ときはジョブログに残さない
+const EVERY_MINUTE_JOBS = new Set(["dispatch-reminders", "daily-digest", "attendance-tick"]);
+
 async function callJob(path: string, label: string): Promise<void> {
   if (!JOBS_TOKEN) return;
   const url = `${WEB_URL}${path}`;
@@ -51,6 +54,7 @@ async function callJob(path: string, label: string): Promise<void> {
           replaced?: number;
           isClassDay?: boolean;
           late?: number;
+          attempted?: number;
           outageMin?: number;
         }
       | null;
@@ -65,6 +69,7 @@ async function callJob(path: string, label: string): Promise<void> {
         json.scheduled ||
         json.scanned ||
         json.replaced ||
+        json.attempted ||
         json.outageMin)
     );
     let summary = "";
@@ -82,11 +87,12 @@ async function callJob(path: string, label: string): Promise<void> {
       if (json.deleted !== undefined) parts.push(`deleted=${json.deleted}`);
       if (json.late) parts.push(`late=${json.late}`);
       if (json.outageMin) parts.push(`outageMin=${json.outageMin}`);
+      if (json.attempted) parts.push(`attempted=${json.attempted}`);
       summary = parts.join(" ");
       console.log(`[worker] ${label}: ${summary}`);
     }
-    // 毎分の dispatch-reminders / daily-digest は空振りを残すと他の job が埋もれるので、仕事をした時だけ
-    if (didWork || (label !== "dispatch-reminders" && label !== "daily-digest")) appendJobLog(label, "ok", summary);
+    // 毎分動く job は空振りを残すと他の job が埋もれるので、仕事をした時だけ
+    if (didWork || !EVERY_MINUTE_JOBS.has(label)) appendJobLog(label, "ok", summary);
   } catch (e) {
     if (ctrl.signal.aborted) {
       console.error(
