@@ -3,20 +3,25 @@
 //
 // 流れ:
 //   1. ManabaCredential を読んでパスワード復号
-//   2. fetchManabaAssignments でスクレイプ
+//   2. ログインして課題一覧(未提出のもの)をスクレイプ
 //   3. 期限ありかつ未来の課題だけを TaskInstance に upsert
 //      - 重複検知: source=ACADEMIC, sourceExternalId=manaba:<course>:<title>:<dueAt>
 //      - DONE / SKIPPED の既存タスクはそのまま
-//   4. lastSyncedAt / lastError を書き戻し
+//   4. 一覧から消えた OPEN 行は詳細ページで提出状況を確認し、
+//      提出済みなら DONE、それ以外(取り下げ等)は SKIPPED にする
+//   5. lastSyncedAt / lastError を書き戻し
 
 import { createHash } from "node:crypto";
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { decryptManabaPassword } from "@/lib/manabaCrypto";
 import {
-  fetchManabaAssignments,
+  fetchAssignmentsWith,
   ManabaError,
+  openManabaSession,
+  parseSubmissionState,
   type ManabaAssignment,
+  type ManabaSession,
 } from "@/lib/manabaScrape";
 
 export type ManabaSyncResult =
@@ -29,6 +34,8 @@ export type ManabaSyncResult =
       inserted: number;
       updated: number;
       skipped: number;
+      /** 一覧から消え、詳細ページで提出済みと確認できて DONE にした行 */
+      submitted: number;
       /** 取消し / 取り下げ済み(スクレイプに出なかった既存 OPEN 行) */
       canceled: number;
       /**
@@ -73,6 +80,30 @@ function legacyKeyPrefix(a: ManabaAssignment): string {
   return `manaba:${a.course}:${a.title}:`;
 }
 
+// 一度の同期で詳細ページを開く上限。普段は数件なので、異常時の大量アクセス防止用。
+const MAX_SUBMISSION_CHECKS = 20;
+
+// 一覧から消えた課題のうち、詳細ページで「提出済み」と確認できた行の id を返す。
+async function findSubmitted(
+  session: ManabaSession,
+  rows: { id: number; sourceExternalId: string | null }[],
+): Promise<number[]> {
+  const ids: number[] = [];
+  for (const row of rows.slice(0, MAX_SUBMISSION_CHECKS)) {
+    const url = row.sourceExternalId?.match(/^manaba:url:(https?:\/\/.+)$/)?.[1];
+    if (!url) continue;
+    try {
+      const res = await session.fetch(url);
+      if (res.ok && parseSubmissionState(await res.text()) === "submitted") {
+        ids.push(row.id);
+      }
+    } catch {
+      // 取得失敗は「提出を確認できなかった」扱い(SKIPPED 側に倒れる)
+    }
+  }
+  return ids;
+}
+
 export async function runManabaSync(): Promise<ManabaSyncResult> {
   const cred = await prisma.manabaCredential.findFirst();
   if (!cred) {
@@ -94,9 +125,11 @@ export async function runManabaSync(): Promise<ManabaSyncResult> {
     };
   }
 
+  let session: ManabaSession;
   let assignments: ManabaAssignment[];
   try {
-    assignments = await fetchManabaAssignments(cred.username, plainPassword);
+    session = await openManabaSession(cred.username, plainPassword);
+    assignments = await fetchAssignmentsWith(session);
   } catch (e) {
     const msg =
       e instanceof ManabaError
@@ -295,6 +328,7 @@ export async function runManabaSync(): Promise<ManabaSyncResult> {
     (withDue.length === 0 && assignments.length > 0);
   const shouldReconcileCancellation =
     !scrapeLooksBroken || existingOpenCount === 0;
+  let submitted = 0;
   let canceled = 0;
   let cancellationSkipped = false;
   if (shouldReconcileCancellation) {
@@ -313,15 +347,30 @@ export async function runManabaSync(): Promise<ManabaSyncResult> {
         sourceExternalId: { startsWith: "manaba:" },
         NOT: { sourceExternalId: { in: liveExternalIds } },
       },
-      select: { id: true },
+      select: { id: true, sourceExternalId: true },
     });
     if (orphans.length > 0) {
+      // 一覧は「未提出」の課題だけを出すので、消えた理由の大半は提出。
+      // 詳細ページの状態欄で提出済みと確認できたものだけ DONE にし、
+      // 取り下げ・ページ取得失敗・URL 不明は従来どおり SKIPPED にする。
+      const submittedIds = await findSubmitted(session, orphans);
       const orphanIds = orphans.map((o) => o.id);
-      const upd = await prisma.taskInstance.updateMany({
-        where: { id: { in: orphanIds }, status: "OPEN" },
-        data: { status: "SKIPPED" },
-      });
-      canceled = upd.count;
+      const canceledIds = orphanIds.filter((id) => !submittedIds.includes(id));
+      const now = new Date();
+      if (submittedIds.length > 0) {
+        const done = await prisma.taskInstance.updateMany({
+          where: { id: { in: submittedIds }, status: "OPEN" },
+          data: { status: "DONE", completedAt: now },
+        });
+        submitted = done.count;
+      }
+      if (canceledIds.length > 0) {
+        const upd = await prisma.taskInstance.updateMany({
+          where: { id: { in: canceledIds }, status: "OPEN" },
+          data: { status: "SKIPPED" },
+        });
+        canceled = upd.count;
+      }
       const staleClaim = new Date(Date.now() - 5 * 60_000);
       await prisma.reminder.updateMany({
         where: {
@@ -356,6 +405,7 @@ export async function runManabaSync(): Promise<ManabaSyncResult> {
     inserted,
     updated,
     skipped,
+    submitted,
     canceled,
     cancellationSkipped,
   };

@@ -108,6 +108,7 @@ export function ManabaSettings() {
       }
       setMessage(
         `同期完了: 取得 ${body.fetched ?? 0} / 取込対象 ${body.target ?? 0} / 追加 ${body.inserted ?? 0} / 更新 ${body.updated ?? 0}` +
+          ((body.submitted ?? 0) > 0 ? ` / 提出済み ${body.submitted} 件を完了に` : "") +
           ((body.pastSkipped ?? 0) > 0
             ? ` / 過去 ${body.pastSkipped} 件は除外`
             : ""),
