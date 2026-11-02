@@ -18,8 +18,11 @@
  */
 import * as cheerio from "cheerio";
 
+// WHY trim() || : compose の `${ATTENDANCE_BASE_URL:-}` は未設定時に空文字を渡す。
+// `??` は空文字を既定に置き換えないため、空だと接続先が "" (相対URL) になり fetch が
+// 失敗する。空白のみの値も含めて落として、必ず絶対URLの既定へフォールバックする。
 const BASE_URL =
-  process.env.ATTENDANCE_BASE_URL ?? "https://attendance.is.chibatech.ac.jp";
+  process.env.ATTENDANCE_BASE_URL?.trim() || "https://attendance.is.chibatech.ac.jp";
 const ORIGIN = (() => {
   try {
     return new URL(BASE_URL).origin;
