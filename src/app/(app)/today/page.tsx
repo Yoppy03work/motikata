@@ -6,6 +6,7 @@ import { APP_TZ } from "@/lib/tz";
 import { isValidYmd } from "@/lib/week";
 import { getMonthlyIndicators, monthWindow } from "@/lib/indicators";
 import { getDayItems } from "@/lib/today";
+import { prisma } from "@/lib/db";
 import { CalendarIcon } from "@/components/icons";
 import { TodayItemCard } from "./TodayItemCard";
 import { DateNav } from "./DateNav";
@@ -91,9 +92,10 @@ export default async function TodayPage({
   const indicators = await getMonthlyIndicators(from, to);
 
   const tomorrowYmd = ymdJst(addDays(viewDate, 1));
-  const [primaryItems, tomorrowItems] = await Promise.all([
+  const [primaryItems, tomorrowItems, unreadNews] = await Promise.all([
     getDayItems(viewYmd),
     showTomorrowPrep ? getDayItems(tomorrowYmd) : Promise.resolve([]),
+    prisma.manabaNews.count({ where: { readAt: null } }),
   ]);
   const primary = groupByAxis(primaryItems);
   const tomorrow = showTomorrowPrep ? groupByAxis(tomorrowItems) : null;
@@ -167,6 +169,16 @@ export default async function TodayPage({
         nextYmd={nextYmd}
         indicators={indicators}
       />
+
+      {unreadNews > 0 && (
+        <Link
+          href="/news"
+          className="mt-3 flex items-center justify-between rounded-xl border border-sky-300 bg-sky-50 px-3.5 py-2.5 text-sm text-sky-800 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200"
+        >
+          <span>manaba のお知らせ 未読 {unreadNews} 件</span>
+          <span aria-hidden>›</span>
+        </Link>
+      )}
 
       {nextUp && <NextUpCard item={nextUp} now={now} />}
 

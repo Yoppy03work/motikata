@@ -440,3 +440,79 @@ export async function fetchAssignmentsWith(
   const html = await res.text();
   return parseAssignmentsHtml(html, session.base);
 }
+
+// ---- コースニュース(2026年11月確認) ----
+// コース一覧 /ct/home_course: 時間割表示では同じコースが複数のコマに出る。
+//   <a href="course_1673778">データベース情工3年 ※情報</a> ...
+//   <div class=coursestatus><img src="/icon_coursenews_on.png" alt="未読のニュースがあります。"> ...
+// ニュース一覧 /ct/course_<id>_news:
+//   table.stdlist の各行 <td class="newstext unread"><a href="course_<id>_news_<newsId>">タイトル</a></td>
+//   <td>…投稿者</td> <td class="center">2026-10-29 11:05</td>
+// ニュース本文のページは開くと manaba 側で既読になるので、一覧だけを読む。
+
+export type ManabaCourse = { courseId: number; name: string; hasUnreadNews: boolean | null };
+
+export function parseCourseList(html: string): ManabaCourse[] {
+  const $ = cheerio.load(html);
+  const byId = new Map<number, ManabaCourse>();
+  $("a[href]").each((_, a) => {
+    const m = ($(a).attr("href") ?? "").match(/^course_(\d+)$/);
+    const name = $(a).text().replace(/\s+/g, " ").trim();
+    if (!m || !name) return;
+    const courseId = Number(m[1]);
+    // コースのリンクを含むセルにある「未読ニュース」アイコンを探す(数階層まで遡る)
+    let unread: boolean | null = null;
+    let node = $(a).parent();
+    for (let i = 0; i < 4 && node.length; i++) {
+      const icon = node.find('img[src*="icon_coursenews"]').first();
+      if (icon.length) {
+        unread = (icon.attr("src") ?? "").includes("_on");
+        break;
+      }
+      node = node.parent();
+    }
+    const prev = byId.get(courseId);
+    byId.set(courseId, {
+      courseId,
+      name: prev?.name ?? name,
+      hasUnreadNews: prev?.hasUnreadNews === true || unread === true ? true : (unread ?? prev?.hasUnreadNews ?? null),
+    });
+  });
+  return [...byId.values()];
+}
+
+export type ManabaNewsItem = {
+  newsId: number;
+  courseId: number;
+  title: string;
+  author: string | null;
+  publishedAt: Date;
+  url: string;
+  unread: boolean;
+};
+
+export function parseNewsList(html: string, base: string, courseId: number): ManabaNewsItem[] {
+  const $ = cheerio.load(html);
+  const out: ManabaNewsItem[] = [];
+  $("table.stdlist tr").each((_, tr) => {
+    const tds = $(tr).find("td").toArray();
+    if (tds.length < 3) return;
+    const link = $(tds[0]).find("a[href]").first();
+    const m = (link.attr("href") ?? "").match(/^course_(\d+)_news_(\d+)$/);
+    if (!m || Number(m[1]) !== courseId) return;
+    const title = link.text().replace(/\s+/g, " ").trim();
+    const publishedAt = parseDueDate($(tds[tds.length - 1]).text());
+    if (!title || !publishedAt) return;
+    const author = $(tds[1]).text().replace(/\s+/g, " ").trim() || null;
+    out.push({
+      newsId: Number(m[2]),
+      courseId,
+      title,
+      author,
+      publishedAt,
+      url: new URL(link.attr("href")!, `${base}/ct/`).toString(),
+      unread: $(tds[0]).hasClass("unread"),
+    });
+  });
+  return out;
+}

@@ -10,6 +10,7 @@
 //   4. 一覧から消えた OPEN 行は詳細ページで提出状況を確認し、
 //      提出済みなら DONE、それ以外(取り下げ等)は SKIPPED にする
 //   5. lastSyncedAt / lastError を書き戻し
+//   6. 同じログインでコースニュースを取り込み、新着を通知(失敗しても課題の同期は成功扱い)
 
 import { createHash } from "node:crypto";
 import { Prisma } from "@/generated/prisma/client";
@@ -24,6 +25,7 @@ import {
   type ManabaSession,
 } from "@/lib/manabaScrape";
 import { syncManabaDeadlineReminders } from "@/lib/manabaDeadline";
+import { syncManabaNews, type NewsSyncResult } from "@/lib/manabaNews";
 
 export type ManabaSyncResult =
   | {
@@ -47,6 +49,8 @@ export type ManabaSyncResult =
       cancellationSkipped: boolean;
       /** 今回新しく置いた締切直前チェック(60 分前 / 5 分前)の件数 */
       deadlineChecks: number;
+      /** コースニュースの取り込み結果(失敗したときは error) */
+      news: NewsSyncResult | { error: string };
     }
   | {
       ok: false;
@@ -402,6 +406,13 @@ export async function runManabaSync(): Promise<ManabaSyncResult> {
   // 締切 60 分前 / 5 分前の提出チェックを、最新の締切に合わせて置き直す
   const deadline = await syncManabaDeadlineReminders();
 
+  let news: NewsSyncResult | { error: string };
+  try {
+    news = await syncManabaNews(session);
+  } catch (e) {
+    news = { error: (e instanceof Error ? e.message : String(e)).slice(0, 300) };
+  }
+
   return {
     ok: true,
     fetched: assignments.length,
@@ -415,5 +426,6 @@ export async function runManabaSync(): Promise<ManabaSyncResult> {
     canceled,
     cancellationSkipped,
     deadlineChecks: deadline.created,
+    news,
   };
 }

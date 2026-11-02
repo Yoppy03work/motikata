@@ -308,6 +308,26 @@ model ManabaCredential {
   updatedAt     DateTime  @updatedAt
 }
 
+// manaba のコースニュース。同期のたびに未読ニュースのあるコースの一覧ページを読んで溜める。
+// 本文は取らない(manaba では本文を開くと既読になるため)。id は manaba のニュース ID。
+model ManabaNews {
+  id          Int       @id
+  courseId    Int
+  courseName  String
+  title       String
+  author      String?
+  publishedAt DateTime
+  url         String
+  // アプリ上で既読にした時刻。取り込んだ時点で manaba 側が既読なら既読で入れる
+  readAt      DateTime?
+  // 新着として通知した時刻(古いニュースは通知しない)
+  notifiedAt  DateTime?
+  firstSeenAt DateTime  @default(now())
+
+  @@index([readAt])
+  @@index([publishedAt])
+}
+
 // CITポータル(Universal Passport RX)連携用の暗号化保存資格情報。
 // SSO + MFA(TOTP)経由でログインするため、TOTPシークレットも保存する。
 // 注意: passwordEnc と totpSecretEnc が同一鍵(SESSION_SECRET派生)で
