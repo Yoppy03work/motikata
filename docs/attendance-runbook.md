@@ -75,14 +75,17 @@ auto は「時間に教室にいなくても QR さえ読めば送れる」= 代
    ATTENDANCE_AUTO_DRY_RUN="true"   # ← 最初は必ずドライラン
    ```
 
-3. web コンテナに反映（env は作成時に読まれるので再作成する。再ビルドは不要）：
+3. web コンテナに反映（env はコンテナ作成時に読まれるので再作成する）：
 
    ```sh
-   docker compose up -d web
+   docker compose up -d --no-build web
    ```
 
+   `--no-build` は「env を変えただけなのでイメージは再生成せず、既存イメージで
+   コンテナだけ作り直す」ため。イメージのビルドは別途 `docker build` で行う運用。
+
    - これで設定画面の auto が「コード未設定」から選べる状態になる。
-   - 逆に、この env を **空に戻して `docker compose up -d web`** すれば auto は即ロック（緊急停止の一つ）。
+   - 逆に、この env を **空に戻して `docker compose up -d --no-build web`** すれば auto は即ロック（緊急停止の一つ）。
 
 ### 3-2. 設定画面で解禁
 
@@ -105,8 +108,12 @@ auto は「時間に教室にいなくても QR さえ読めば送れる」= 代
   ```
 
 - 授業ウィンドウ内に入ったとき、監査ログ (`AttendanceAuditLog`) に
-  `phase=pre_attempt`→`post_attempt(dry-run)` が出て、`AttendanceLog` に **success が増えない**
+  `phase=post_attempt / reason="dry-run (no external send)"` が **1 行だけ**出る
+  （実送信の `pre_attempt` は書かれない）。`AttendanceLog` に **success が増えない**
   ことを確認（＝実送信していない）。確認方法は §4。
+- 想定どおりの動き：ドライランは送信予約 (claim) をしないので、ウィンドウにいる間は
+  **毎分** 監査ログが 1 行増え、ジョブログにも `attempted=1` が出続ける（`AttendanceLog`
+  は増えないまま）。これは正常で、実送信していないことの裏返し。確認できたら次へ。
 
 ### 3-4. 実送信へ（ドライラン解除）
 
@@ -117,7 +124,7 @@ auto は「時間に教室にいなくても QR さえ読めば送れる」= 代
 ```
 
 ```sh
-docker compose up -d web
+docker compose up -d --no-build web
 ```
 
 次の授業ウィンドウで、auto が実送信し `AttendanceLog(method=auto, status=success)` と
@@ -126,8 +133,8 @@ docker compose up -d web
 ### 3-5. 緊急停止（どれでも可）
 
 - 設定を **confirm / manual** に戻す（`autoUnlocked` が落ち、auto 実行が止まる）。
-- `ATTENDANCE_AUTO_DRY_RUN="true"` に戻して `docker compose up -d web`（送らなくなる）。
-- `ATTENDANCE_AUTO_DEV_CODE=""` にして `docker compose up -d web`（auto を恒久ロック）。
+- `ATTENDANCE_AUTO_DRY_RUN="true"` に戻して `docker compose up -d --no-build web`（送らなくなる）。
+- `ATTENDANCE_AUTO_DEV_CODE=""` にして `docker compose up -d --no-build web`（auto を恒久ロック）。
 
 ---
 
@@ -148,8 +155,9 @@ docker compose up -d web
 - psql で直接：
 
   ```sh
-  docker compose exec postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-    -c 'select "classScheduleId","classDate",method,status,"attemptedAt" from "AttendanceLog" order by "attemptedAt" desc limit 20;'
+  # $POSTGRES_USER/$POSTGRES_DB はコンテナ内で展開させる (手元シェルでは空になる)。
+  docker compose exec postgres sh -c \
+    'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "select \"classScheduleId\",\"classDate\",method,status,\"attemptedAt\" from \"AttendanceLog\" order by \"attemptedAt\" desc limit 20;"'
   ```
 
 状態の意味：`pending`=送信中 / `success`=成功 / `failed`=失敗 / `manual`=手動記録のみ。
@@ -165,7 +173,7 @@ docker compose up -d web
 | 「出席済み」で押せない | 同じブロックで送信済み | 仕様（二重送信防止）。再送は不要 |
 | QR を読んでも弾かれる | QR の教室 (roomId) が今日の授業と一致しない | 正しい教室の QR か確認（例 731 講義室=`7301`、一方向畳み込みで照合） |
 | 今日ページに登録ヒントが出る | CIT 認証情報 未登録 | 設定の CIT ポータル連携で登録 |
-| auto が選べない（コード未設定） | `ATTENDANCE_AUTO_DEV_CODE` 未設定 | §3-1 で設定して `docker compose up -d web` |
+| auto が選べない（コード未設定） | `ATTENDANCE_AUTO_DEV_CODE` 未設定 | §3-1 で設定して `docker compose up -d --no-build web` |
 | auto 解禁したのに送らない | ドライラン中 / ウィンドウ外 / mode が auto でない | §3-3〜3-4。`ATTENDANCE_AUTO_DRY_RUN` と mode・`autoUnlocked` を確認 |
 
 ---
@@ -177,3 +185,5 @@ docker compose up -d web
 - UI: `src/app/(app)/today/TodayAttendance.tsx`, `src/app/(app)/settings/AttendanceSettings.tsx`
 - worker cron: `worker/index.ts`（毎分 `/api/jobs/attendance-tick`）
 - env: `.env.example` の「出席 (CIT native)」セクション
+  - `ATTENDANCE_AUTO_DEV_CODE`（auto 解禁コード。空=永久ロック）/ `ATTENDANCE_AUTO_DRY_RUN`（ドライラン弁）
+  - `ATTENDANCE_BASE_URL`（出席ホスト。空/未設定なら chibatech）/ `ATTENDANCE_QR_ALLOWED_HOST_SUFFIXES`（QR 許可ホスト。空なら既定 .cit/.chibatech/.it-chiba）

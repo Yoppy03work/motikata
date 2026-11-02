@@ -69,6 +69,7 @@ services:
       # この web プロセスで動くため、env は web 側だけに渡す(worker は tick を叩くだけ)。
       # 既定ホストは http.ts 内の chibatech。auto は DEV_CODE 未設定なら永久ロック。
       - ATTENDANCE_BASE_URL=${ATTENDANCE_BASE_URL:-}
+      - ATTENDANCE_QR_ALLOWED_HOST_SUFFIXES=${ATTENDANCE_QR_ALLOWED_HOST_SUFFIXES:-}
       - ATTENDANCE_AUTO_DEV_CODE=${ATTENDANCE_AUTO_DEV_CODE:-}
       - ATTENDANCE_AUTO_DRY_RUN=${ATTENDANCE_AUTO_DRY_RUN:-}
     # 既定は 127.0.0.1 のみ(この Mac からだけ見える)。公開するときは
