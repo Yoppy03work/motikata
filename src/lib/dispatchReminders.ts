@@ -424,6 +424,7 @@ function buildMessage(instance: ReminderInstance, escalationLevel: number): Noti
       body: `締切 ${time}(manaba でまだ提出されていません)`,
       url: "/today",
       tag: `task-${instance.id}`,
+      taskId: instance.id,
     };
   }
   const tag =
@@ -445,5 +446,7 @@ function buildMessage(instance: ReminderInstance, escalationLevel: number): Noti
     body: time,
     url: "/today",
     tag: `task-${instance.id}`,
+    // 予定(授業など)は「完了」にするものではないのでボタンを付けない
+    taskId: instance.itemType === "TASK" ? instance.id : undefined,
   };
 }

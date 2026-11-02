@@ -1,17 +1,25 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { requireAuthApi } from "@/lib/authGuard";
 import { parseId } from "@/lib/id";
+import { MANABA_DEADLINE_LEVEL } from "@/lib/manabaDeadline";
 
-const SNOOZE_MINUTES = 60;
+const DEFAULT_SNOOZE_MINUTES = 60;
 
-export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+// 本文は省略可。{ minutes } で後回しにする分数を指定できる(ブラウザ通知の「30 分後」ボタン用)。
+const Body = z.object({ minutes: z.number().int().min(5).max(24 * 60).optional() }).nullable();
+
+export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const guard = await requireAuthApi();
   if (guard) return guard;
   const { id: idStr } = await params;
   const id = parseId(idStr);
   if (id === null) return NextResponse.json({ error: "invalid id" }, { status: 400 });
+  const body = Body.safeParse(await req.json().catch(() => null));
+  if (!body.success) return NextResponse.json({ error: "invalid body" }, { status: 400 });
+  const minutes = body.data?.minutes ?? DEFAULT_SNOOZE_MINUTES;
 
   // タスク存在チェック(削除済みのスヌーズは 404 を返す)
   const exists = await prisma.taskInstance.findUnique({
@@ -43,8 +51,10 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
         where: { instanceId: id },
         _max: { escalationLevel: true },
       });
-      const nextLevel = (max._max.escalationLevel ?? -1) + 1;
-      const remindAt = new Date(Date.now() + SNOOZE_MINUTES * 60_000);
+      // MANABA_DEADLINE_LEVEL は manaba の締切直前チェック専用(同期のたびに作り直される)なので、
+      // 後回しのリマインダーはそれより上の番号にする
+      const nextLevel = Math.max((max._max.escalationLevel ?? -1) + 1, MANABA_DEADLINE_LEVEL + 1);
+      const remindAt = new Date(Date.now() + minutes * 60_000);
       const channel = "ALL" as const;
       const dedupeKey = `${id}:${remindAt.toISOString()}:${channel}:${nextLevel}`;
 
