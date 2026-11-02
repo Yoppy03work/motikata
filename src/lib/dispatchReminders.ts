@@ -50,12 +50,20 @@
 //
 //   - Push が「購読者あり・全件配信失敗」のケースは SENT ではなく PENDING/FAILED
 //     扱いにして再試行を許容する。
+//
+// 停止明け(Mac のスリープ・Docker の停止など):
+//   - 予定時刻から LATE_MS 以上遅れたリマインダーは 1 件ずつ送らず、停止していた時間と
+//     一緒に 1 通にまとめて送る(missedReminders.ts)。
+//   - まとめ通知は TaskInstance の行ロックを取らずに送る。複数タスク分を 1 通にするので
+//     ロックを持ち続けられないため。送信の直前に完了したタスクが 1 行混ざる程度で、実害は小さい。
 
 import { formatInTimeZone } from "date-fns-tz";
 import { ja } from "date-fns/locale/ja";
 import { prisma } from "@/lib/db";
 import { formatMinutes } from "@/lib/formatMinutes";
 import { deliver } from "@/lib/notify";
+import { buildMissedMessage, isLate, type MissedItem, type Outage } from "@/lib/missedReminders";
+import { pingWatchdog, recordHeartbeat } from "@/lib/watchdog";
 import type { NotifyMessage } from "@/lib/notifyConfig";
 import {
   createSubmissionChecker,
@@ -76,6 +84,10 @@ export type DispatchSummary = {
   failed: number;
   skipped: number;
   examined: number;
+  // 停止明けにまとめて送った(または送ろうとした)件数
+  late: number;
+  // 直前まで止まっていた分数(止まっていなければ 0)
+  outageMin: number;
 };
 
 /** PENDING のリマインダーを claimedAt セットで原子的に占有する。
@@ -105,6 +117,9 @@ async function tryClaim(reminderId: number): Promise<boolean> {
 
 export async function dispatchPendingReminders(): Promise<DispatchSummary> {
   const now = new Date();
+  const outage = await recordHeartbeat(now);
+  // 外部の見張り(登録されていれば)。失敗しても配信は続ける
+  await pingWatchdog({ now }).catch(() => undefined);
   const staleClaim = new Date(now.getTime() - STALE_CLAIM_MS);
 
   const pending = await prisma.reminder.findMany({
@@ -139,6 +154,7 @@ export async function dispatchPendingReminders(): Promise<DispatchSummary> {
   let skipped = 0;
   // manaba の締切直前チェックがあるバッチでだけ、1 回ログインして使い回す
   const checkSubmission = createSubmissionChecker();
+  const missed: { id: number; attempts: number; item: MissedItem }[] = [];
 
   for (const r of pending) {
     // 1) atomic claim (claimedAt セット、attempts はまだ増やさない)
@@ -146,6 +162,23 @@ export async function dispatchPendingReminders(): Promise<DispatchSummary> {
     if (!claimed) {
       // 既に他の dispatcher / 並行処理が拾った
       continue;
+    }
+    // 止まっていて予定時刻を大きく過ぎたもの: あとで 1 通にまとめる
+    if (isLate(r.remindAt, now)) {
+      const late = await classifyLate(r, now, checkSubmission);
+      if (typeof late === "string") {
+        await prisma.reminder.update({
+          where: { id: r.id },
+          data: { status: "SKIPPED", lastError: late, claimedAt: null },
+        });
+        skipped++;
+        continue;
+      }
+      if (late) {
+        missed.push({ id: r.id, attempts: r.attempts, item: late });
+        continue;
+      }
+      // null: 締切前の manaba チェックなので、遅れていても通常どおり確認して送る
     }
     // manaba 締切直前チェック: 送る前に manaba で提出状況を確認する
     if (r.escalationLevel === MANABA_DEADLINE_LEVEL) {
@@ -253,7 +286,103 @@ export async function dispatchPendingReminders(): Promise<DispatchSummary> {
     else failed++;
   }
 
-  return { sent, failed, skipped, examined: pending.length };
+  if (missed.length > 0) {
+    const res = await sendMissed(outage, missed, now);
+    sent += res.sent;
+    failed += res.failed;
+    skipped += res.skipped;
+  }
+
+  const outageMin = outage ? Math.round((outage.to.getTime() - outage.from.getTime()) / 60_000) : 0;
+  return { sent, failed, skipped, examined: pending.length, late: missed.length, outageMin };
+}
+
+/**
+ * 大きく遅れたリマインダーの振り分け。
+ *   文字列 → 送らない(理由)
+ *   MissedItem → まとめ通知に入れる
+ *   null → 通常どおり 1 件で送る(締切前の manaba チェック)
+ */
+async function classifyLate(
+  r: {
+    escalationLevel: number;
+    instance: {
+      id: number;
+      title: string;
+      dueAt: Date;
+      itemType: "TASK" | "EVENT";
+      status: string;
+      sourceExternalId: string | null;
+    };
+  },
+  now: Date,
+  checkSubmission: (url: string) => Promise<string>,
+): Promise<MissedItem | string | null> {
+  const t = r.instance;
+  if (t.status !== "OPEN") return "task no longer OPEN";
+  const item = { instanceId: t.id, title: t.title, dueAt: t.dueAt };
+  if (r.escalationLevel === MANABA_DEADLINE_LEVEL) {
+    if (t.dueAt.getTime() > now.getTime()) return null;
+    // 締切を過ぎてしまった。提出済みなら完了にして終わり、分からなければ確認を促す
+    const url = manabaUrlOf(t.sourceExternalId);
+    if (url && (await checkSubmission(url)) === "submitted") {
+      await markManabaSubmitted(t.id);
+      return "manaba で提出済み";
+    }
+    return { ...item, deadlinePassed: true };
+  }
+  // 終わってしまった予定を後から知らせても意味がない
+  if (t.itemType === "EVENT" && t.dueAt.getTime() <= now.getTime()) return "止まっている間に予定の時刻を過ぎたため送信せず";
+  return { ...item, deadlinePassed: false };
+}
+
+/** 遅れた分を 1 通にまとめて送り、対象のリマインダーをまとめて確定する。 */
+async function sendMissed(
+  outage: Outage | null,
+  missed: { id: number; attempts: number; item: MissedItem }[],
+  now: Date,
+): Promise<{ sent: number; failed: number; skipped: number }> {
+  const ids = missed.map((m) => m.id);
+  let result: Awaited<ReturnType<typeof deliver>>;
+  try {
+    result = await deliver("ALL", buildMissedMessage(outage, missed.map((m) => m.item), now));
+  } catch (e) {
+    result = { kind: "failed", error: e instanceof Error ? e.message : String(e) };
+  }
+  if (result.kind === "sent") {
+    await prisma.reminder.updateMany({
+      where: { id: { in: ids } },
+      data: {
+        status: "SENT",
+        sentAt: new Date(),
+        lastError: ("停止明けにまとめて送信" + (result.partialError ? ` / ${result.partialError}` : "")).slice(0, 500),
+        claimedAt: null,
+      },
+    });
+    return { sent: ids.length, failed: 0, skipped: 0 };
+  }
+  if (result.kind === "skipped") {
+    await prisma.reminder.updateMany({
+      where: { id: { in: ids } },
+      data: { status: "SKIPPED", lastError: result.reason, claimedAt: null },
+    });
+    return { sent: 0, failed: 0, skipped: ids.length };
+  }
+  for (const m of missed) {
+    const next = m.attempts + 1;
+    await prisma.reminder
+      .update({
+        where: { id: m.id },
+        data: {
+          status: next >= MAX_ATTEMPTS ? "FAILED" : "PENDING",
+          attempts: next,
+          lastError: result.error.slice(0, 500),
+          claimedAt: null,
+        },
+      })
+      .catch(() => undefined);
+  }
+  return { sent: 0, failed: ids.length, skipped: 0 };
 }
 
 /**

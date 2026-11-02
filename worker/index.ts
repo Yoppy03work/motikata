@@ -50,6 +50,8 @@ async function callJob(path: string, label: string): Promise<void> {
           scanned?: number;
           replaced?: number;
           isClassDay?: boolean;
+          late?: number;
+          outageMin?: number;
         }
       | null;
     const didWork = !!(
@@ -62,7 +64,8 @@ async function callJob(path: string, label: string): Promise<void> {
         json.classes ||
         json.scheduled ||
         json.scanned ||
-        json.replaced)
+        json.replaced ||
+        json.outageMin)
     );
     let summary = "";
     if (json && didWork) {
@@ -77,6 +80,8 @@ async function callJob(path: string, label: string): Promise<void> {
       if (json.replaced !== undefined) parts.push(`replaced=${json.replaced}`);
       if (json.skipped !== undefined) parts.push(`skipped=${json.skipped}`);
       if (json.deleted !== undefined) parts.push(`deleted=${json.deleted}`);
+      if (json.late) parts.push(`late=${json.late}`);
+      if (json.outageMin) parts.push(`outageMin=${json.outageMin}`);
       summary = parts.join(" ");
       console.log(`[worker] ${label}: ${summary}`);
     }
