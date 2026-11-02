@@ -85,8 +85,8 @@ async function callJob(path: string, label: string): Promise<void> {
       summary = parts.join(" ");
       console.log(`[worker] ${label}: ${summary}`);
     }
-    // 毎分の dispatch-reminders は空振りを残すと他の job が埋もれるので、仕事をした時だけ
-    if (didWork || label !== "dispatch-reminders") appendJobLog(label, "ok", summary);
+    // 毎分の dispatch-reminders / daily-digest は空振りを残すと他の job が埋もれるので、仕事をした時だけ
+    if (didWork || (label !== "dispatch-reminders" && label !== "daily-digest")) appendJobLog(label, "ok", summary);
   } catch (e) {
     if (ctrl.signal.aborted) {
       console.error(
@@ -137,6 +137,17 @@ cron.schedule("* * * * *", () => {
   dispatchInFlight = true;
   void callJob("/api/jobs/dispatch-reminders", "dispatch-reminders").finally(() => {
     dispatchInFlight = false;
+  });
+});
+
+// daily-digest: 毎分。設定画面で決めた時刻(既定 21:00)を過ぎていて未送信なら、
+// 締切が近いタスクのまとめを 1 通送る。時刻の判定と「送信済み」の記録は web 側。
+let digestInFlight = false;
+cron.schedule("* * * * *", () => {
+  if (digestInFlight) return;
+  digestInFlight = true;
+  void callJob("/api/jobs/daily-digest", "daily-digest").finally(() => {
+    digestInFlight = false;
   });
 });
 
