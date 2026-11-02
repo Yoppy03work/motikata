@@ -65,6 +65,12 @@ services:
       - MANABA_BASE_URL=${MANABA_BASE_URL:-}
       # CITポータルスクレイパーのステップ別デバッグログ。問題切り分け時のみ有効化。
       - CIT_PORTAL_DEBUG=${CIT_PORTAL_DEBUG:-0}
+      # 出席(CIT native)。運用手順は docs/attendance-runbook.md。出席ロジックは
+      # この web プロセスで動くため、env は web 側だけに渡す(worker は tick を叩くだけ)。
+      # 既定ホストは http.ts 内の chibatech。auto は DEV_CODE 未設定なら永久ロック。
+      - ATTENDANCE_BASE_URL=${ATTENDANCE_BASE_URL:-}
+      - ATTENDANCE_AUTO_DEV_CODE=${ATTENDANCE_AUTO_DEV_CODE:-}
+      - ATTENDANCE_AUTO_DRY_RUN=${ATTENDANCE_AUTO_DRY_RUN:-}
     # 既定は 127.0.0.1 のみ(この Mac からだけ見える)。公開するときは
     # WEB_HOST_BIND="0.0.0.0:3000" などを設定し、APP_ORIGIN も合わせる。
     ports:
