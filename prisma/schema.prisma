@@ -142,6 +142,9 @@ model ClassSchedule {
   importedFrom  String?
   tags          ClassTag[]
   templates     TaskTemplate[]
+  attendanceLogs       AttendanceLog[]
+  attendanceQrSessions AttendanceQrSession[]
+  attendanceAudits     AttendanceAuditLog[]
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
@@ -495,4 +498,64 @@ model Note {
 
   @@index([kind, archivedAt, createdAt])
   @@index([diaryDate])
+}
+
+// ────────────────────────────────────────────────
+// 出席 (ChibaTechPortal から移植。単一ユーザーなので userId は持たない)
+// classDate は JST カレンダー日の "YYYY-MM-DD" 文字列。@db.Date を使わないのは
+// host TZ での truncate によるズレを根本回避するため (このアプリは @db.Date 不使用)。
+// ────────────────────────────────────────────────
+
+model AttendanceLog {
+  id              Int      @id @default(autoincrement())
+  classScheduleId Int
+  classDate       String // YYYY-MM-DD (JST)
+  // 'pending' は実送信(adapter.attend)前に unique 制約で確保する claim 行。
+  // attend 成功後 saveLog 前のクラッシュでも pending が残り、再試行時の二重送信を防ぐ。
+  status          String // 'success' | 'failed' | 'manual' | 'skipped' | 'pending'
+  method          String // 'manual' | 'confirm' | 'auto'
+  attemptedAt     DateTime @default(now())
+  errorDetail     String?
+
+  classSchedule ClassSchedule @relation(fields: [classScheduleId], references: [id], onDelete: Cascade)
+
+  @@unique([classScheduleId, classDate, method])
+  @@index([classDate])
+}
+
+// append-only 監査ログ。auto 解禁の前提となる pre_attempt / post_attempt / skipped /
+// blocked の各イベントを時系列で残す。コード側は create のみ (update/delete しない)。
+model AttendanceAuditLog {
+  id              Int      @id @default(autoincrement())
+  classScheduleId Int?
+  classDate       String?
+  method          String?
+  phase           String // 'pre_attempt' | 'post_attempt' | 'skipped' | 'blocked'
+  outcome         String? // post_attempt のみ: 'success' | 'failed'
+  reason          String? // skipped/blocked の理由 (外部 HTML 由来はサニタイズ済み)
+  jobId           String?
+  metadata        Json?
+  createdAt       DateTime @default(now())
+
+  classSchedule ClassSchedule? @relation(fields: [classScheduleId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([classScheduleId, classDate])
+}
+
+// auto 出席の「QR 由来の検証済みセッション」。教室の QR をスキャン (confirm/enroll) すると
+// 短命セッションを作り、auto guard の qrSessionValid 判定に使う。
+model AttendanceQrSession {
+  id              Int       @id @default(autoincrement())
+  classScheduleId Int?
+  roomId          String
+  classDate       String // YYYY-MM-DD (JST)
+  expiresAt       DateTime
+  consumedAt      DateTime?
+  createdAt       DateTime  @default(now())
+
+  classSchedule ClassSchedule? @relation(fields: [classScheduleId], references: [id], onDelete: SetNull)
+
+  @@unique([roomId, classDate])
+  @@index([expiresAt])
 }
