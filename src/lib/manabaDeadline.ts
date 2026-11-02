@@ -1,10 +1,11 @@
 // manaba 課題の締切直前チェック。
-//   - 締切 60 分前と 5 分前に Reminder(channel=ALL, escalationLevel=MANABA_DEADLINE_LEVEL)を置く
+//   - 締切の N 分前(利用者が設定画面でアラームのように追加・削除。既定 60 分前と 5 分前)に Reminder(channel=ALL, escalationLevel=MANABA_DEADLINE_LEVEL)を置く
 //   - dispatch 時に manaba の詳細ページで提出状況を確認し、
 //       提出済み → タスクを DONE にして通知しない
 //       未提出 / 確認できない → 通知する(取りこぼすより確認失敗でも知らせる方を優先)
 //   - Reminder の作成・付け替えは manaba 同期のたびに行う(締切変更にも追従)
 
+import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { decryptManabaPassword } from "@/lib/manabaCrypto";
 import {
@@ -16,7 +17,31 @@ import {
 
 // 0 = 通常, 1 = 朝の再通知(escalate)。2 を締切直前チェックに使う。
 export const MANABA_DEADLINE_LEVEL = 2;
-export const MANABA_DEADLINE_OFFSETS_MIN = [60, 5] as const;
+export const DEFAULT_DEADLINE_OFFSETS_MIN = [60, 5];
+export const DEADLINE_OFFSETS_SETTING_KEY = "manaba_deadline_offsets";
+// 1 分前〜7 日前まで、最大 10 個
+export const MAX_DEADLINE_OFFSET_MIN = 7 * 24 * 60;
+export const MAX_DEADLINE_OFFSETS = 10;
+
+export const DeadlineOffsets = z
+  .array(z.number().int().min(1).max(MAX_DEADLINE_OFFSET_MIN))
+  .max(MAX_DEADLINE_OFFSETS)
+  .transform((xs) => [...new Set(xs)].sort((a, b) => b - a));
+
+export async function getDeadlineOffsets(): Promise<number[]> {
+  const row = await prisma.setting.findUnique({ where: { key: DEADLINE_OFFSETS_SETTING_KEY } });
+  if (!row) return DEFAULT_DEADLINE_OFFSETS_MIN;
+  const parsed = DeadlineOffsets.safeParse(row.value);
+  return parsed.success ? parsed.data : DEFAULT_DEADLINE_OFFSETS_MIN;
+}
+
+export async function setDeadlineOffsets(offsets: number[]): Promise<void> {
+  await prisma.setting.upsert({
+    where: { key: DEADLINE_OFFSETS_SETTING_KEY },
+    create: { key: DEADLINE_OFFSETS_SETTING_KEY, value: offsets },
+    update: { value: offsets },
+  });
+}
 
 const URL_KEY = /^manaba:url:(https?:\/\/.+)$/;
 
@@ -30,10 +55,11 @@ export type PlannedReminder = { instanceId: number; remindAt: Date; dedupeKey: s
 export function planDeadlineReminders(
   tasks: { id: number; dueAt: Date }[],
   now: Date,
+  offsets: readonly number[] = DEFAULT_DEADLINE_OFFSETS_MIN,
 ): PlannedReminder[] {
   const out: PlannedReminder[] = [];
   for (const t of tasks) {
-    for (const off of MANABA_DEADLINE_OFFSETS_MIN) {
+    for (const off of offsets) {
       const remindAt = new Date(t.dueAt.getTime() - off * 60_000);
       if (remindAt.getTime() <= now.getTime()) continue;
       out.push({
@@ -46,7 +72,10 @@ export function planDeadlineReminders(
   return out;
 }
 
-/** OPEN の manaba 課題について締切直前チェックの Reminder を揃える。 */
+/**
+ * OPEN の manaba 課題について締切直前チェックの Reminder を揃える。
+ * 同期のたびと、設定画面でアラーム時刻を変えたときに呼ぶ。
+ */
 export async function syncManabaDeadlineReminders(
   now = new Date(),
 ): Promise<{ created: number; removed: number }> {
@@ -59,7 +88,7 @@ export async function syncManabaDeadlineReminders(
     },
     select: { id: true, dueAt: true },
   });
-  const planned = planDeadlineReminders(tasks, now);
+  const planned = planDeadlineReminders(tasks, now, await getDeadlineOffsets());
   const keep = planned.map((p) => p.dedupeKey);
 
   // 締切が変わった・タスクが閉じた等で不要になった未送信分を消す(送信処理中のものは触らない)

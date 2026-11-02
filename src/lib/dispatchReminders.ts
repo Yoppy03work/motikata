@@ -54,6 +54,7 @@
 import { formatInTimeZone } from "date-fns-tz";
 import { ja } from "date-fns/locale/ja";
 import { prisma } from "@/lib/db";
+import { formatMinutes } from "@/lib/formatMinutes";
 import { deliver } from "@/lib/notify";
 import type { NotifyMessage } from "@/lib/notifyConfig";
 import {
@@ -290,7 +291,7 @@ function buildMessage(instance: ReminderInstance, escalationLevel: number): Noti
   if (escalationLevel === MANABA_DEADLINE_LEVEL) {
     const left = Math.max(0, Math.round((instance.dueAt.getTime() - Date.now()) / 60_000));
     return {
-      title: `【未提出】締切まであと ${left} 分: ${instance.title}`.slice(0, 120),
+      title: `【未提出】締切まであと ${formatMinutes(left)}: ${instance.title}`.slice(0, 120),
       body: `締切 ${time}(manaba でまだ提出されていません)`,
       url: "/today",
       tag: `task-${instance.id}`,

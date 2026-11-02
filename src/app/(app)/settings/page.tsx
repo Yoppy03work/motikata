@@ -9,6 +9,7 @@ import { useBoolPref, useThemePref } from "@/lib/useLocalPref";
 import { RepeatIcon } from "@/components/icons";
 import { AcademicImport } from "./AcademicImport";
 import { CitPortalSettings } from "./CitPortalSettings";
+import { DeadlineAlertSettings } from "./DeadlineAlertSettings";
 import { PwaInstallPrompt } from "@/components/PwaInstallPrompt";
 import { GoogleCalendarSettings } from "./GoogleCalendarSettings";
 import { ManabaSettings } from "./ManabaSettings";
@@ -149,6 +150,7 @@ export default function SettingsPage() {
             manaba 連携
           </h2>
           <ManabaSettings />
+          <DeadlineAlertSettings />
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-slate-100 p-4 dark:border-slate-800 dark:bg-slate-900">

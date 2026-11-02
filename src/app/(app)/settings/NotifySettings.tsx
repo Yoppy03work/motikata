@@ -163,7 +163,7 @@ export function NotifySettings() {
     <div className="space-y-3">
       <p className="text-xs text-slate-500">
         リマインダーを受け取る場所を選びます。通知先「すべて」のリマインダー(既定)と、manaba
-        の締切 1 時間前・5 分前の未提出通知は、ON にした通知先すべてに届きます。
+        の締切前の未提出通知(時刻は「manaba 連携」で設定)は、ON にした通知先すべてに届きます。
       </p>
       {channels && (
         <p className="text-xs text-slate-700 dark:text-slate-300">
