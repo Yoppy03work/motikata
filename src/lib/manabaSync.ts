@@ -23,6 +23,7 @@ import {
   type ManabaAssignment,
   type ManabaSession,
 } from "@/lib/manabaScrape";
+import { syncManabaDeadlineReminders } from "@/lib/manabaDeadline";
 
 export type ManabaSyncResult =
   | {
@@ -44,6 +45,8 @@ export type ManabaSyncResult =
        * 自動回復する。
        */
       cancellationSkipped: boolean;
+      /** 今回新しく置いた締切直前チェック(60 分前 / 5 分前)の件数 */
+      deadlineChecks: number;
     }
   | {
       ok: false;
@@ -396,6 +399,9 @@ export async function runManabaSync(): Promise<ManabaSyncResult> {
     data: { lastSyncedAt: new Date(), lastError: warnMsg },
   });
 
+  // 締切 60 分前 / 5 分前の提出チェックを、最新の締切に合わせて置き直す
+  const deadline = await syncManabaDeadlineReminders();
+
   return {
     ok: true,
     fetched: assignments.length,
@@ -408,5 +414,6 @@ export async function runManabaSync(): Promise<ManabaSyncResult> {
     submitted,
     canceled,
     cancellationSkipped,
+    deadlineChecks: deadline.created,
   };
 }

@@ -12,7 +12,7 @@ export type TaskSource = z.infer<typeof TaskSource>;
 export const TemplateKind = z.enum(["MANUAL", "RECURRING", "CLASS"]);
 export type TemplateKind = z.infer<typeof TemplateKind>;
 
-export const ReminderChannel = z.enum(["SLACK", "PUSH"]);
+export const ReminderChannel = z.enum(["SLACK", "PUSH", "DISCORD", "LINE", "ALL"]);
 export type ReminderChannel = z.infer<typeof ReminderChannel>;
 
 export const AcademicKind = z.enum(["EXAM", "HOLIDAY", "EVENT"]);

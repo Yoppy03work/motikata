@@ -3,7 +3,7 @@
 // - 1 バッチ最大 BATCH_SIZE 件。worker が毎分叩くので大きい必要はない。
 // - 失敗は attempts++、3回失敗で FAILED。
 // - 紐づく TaskInstance が既に DONE/SKIPPED ならその Reminder は SKIPPED。
-// - SLACK / PUSH 両チャネルを処理。
+// - 送り先は Reminder.channel(SLACK / PUSH / DISCORD / LINE / ALL)。実際の送信は notify.deliver。
 //
 // 並行性:
 //   - 送信前に atomic な「claim」(claimedAt セット)で同一行への並行 dispatch を防ぐ。
@@ -54,8 +54,15 @@
 import { formatInTimeZone } from "date-fns-tz";
 import { ja } from "date-fns/locale/ja";
 import { prisma } from "@/lib/db";
-import { isSlackEnabled, sendSlackMessage } from "@/lib/slack";
-import { isPushConfigured, sendPushToAll } from "@/lib/push";
+import { formatMinutes } from "@/lib/formatMinutes";
+import { deliver } from "@/lib/notify";
+import type { NotifyMessage } from "@/lib/notifyConfig";
+import {
+  createSubmissionChecker,
+  manabaUrlOf,
+  markManabaSubmitted,
+  MANABA_DEADLINE_LEVEL,
+} from "@/lib/manabaDeadline";
 import { APP_TZ } from "@/lib/tz";
 
 const MAX_ATTEMPTS = 3;
@@ -119,6 +126,7 @@ export async function dispatchPendingReminders(): Promise<DispatchSummary> {
           required: true,
           priority: true,
           status: true,
+          sourceExternalId: true,
         },
       },
     },
@@ -129,6 +137,8 @@ export async function dispatchPendingReminders(): Promise<DispatchSummary> {
   let sent = 0;
   let failed = 0;
   let skipped = 0;
+  // manaba の締切直前チェックがあるバッチでだけ、1 回ログインして使い回す
+  const checkSubmission = createSubmissionChecker();
 
   for (const r of pending) {
     // 1) atomic claim (claimedAt セット、attempts はまだ増やさない)
@@ -137,6 +147,19 @@ export async function dispatchPendingReminders(): Promise<DispatchSummary> {
       // 既に他の dispatcher / 並行処理が拾った
       continue;
     }
+    // manaba 締切直前チェック: 送る前に manaba で提出状況を確認する
+    if (r.escalationLevel === MANABA_DEADLINE_LEVEL) {
+      const skipReason = await precheckManabaDeadline(r, checkSubmission);
+      if (skipReason) {
+        await prisma.reminder.update({
+          where: { id: r.id },
+          data: { status: "SKIPPED", lastError: skipReason, claimedAt: null },
+        });
+        skipped++;
+        continue;
+      }
+    }
+
     // 送信失敗時に attempts++ する。成功時は attempts は据え置きでも問題ない
     // (MAX_ATTEMPTS は失敗回数の上限という設計に揃える)。
     const nextAttempts = r.attempts + 1;
@@ -172,98 +195,28 @@ export async function dispatchPendingReminders(): Promise<DispatchSummary> {
             return { kind: "skipped", reason: "task no longer OPEN" };
           }
 
-          if (r.channel === "SLACK") {
-            if (!isSlackEnabled()) {
-              await tx.reminder.update({
-                where: { id: r.id },
-                data: {
-                  status: "SKIPPED",
-                  lastError: "SLACK_WEBHOOK_URL not configured",
-                  claimedAt: null,
-                },
-              });
-              return { kind: "skipped", reason: "slack not configured" };
-            }
-            // 外部送信。例外は外側の catch で受けて attempts++。
-            await sendSlackMessage(buildSlackMessage(r.instance));
+          const result = await deliver(r.channel, buildMessage(r.instance, r.escalationLevel));
+          if (result.kind === "skipped") {
             await tx.reminder.update({
               where: { id: r.id },
-              data: {
-                status: "SENT",
-                sentAt: new Date(),
-                lastError: null,
-                claimedAt: null,
-              },
+              data: { status: "SKIPPED", lastError: result.reason, claimedAt: null },
             });
-            return { kind: "sent" };
+            return { kind: "skipped", reason: result.reason };
           }
-
-          if (r.channel === "PUSH") {
-            const pushReady = await isPushConfigured();
-            if (!pushReady) {
-              await tx.reminder.update({
-                where: { id: r.id },
-                data: {
-                  status: "SKIPPED",
-                  lastError: "VAPID 鍵が未設定です",
-                  claimedAt: null,
-                },
-              });
-              return { kind: "skipped", reason: "push not configured" };
-            }
-            const payload = buildPushPayload(r.instance);
-            const result = await sendPushToAll(payload);
-            if (result.total === 0) {
-              await tx.reminder.update({
-                where: { id: r.id },
-                data: {
-                  status: "SKIPPED",
-                  lastError: "Push 購読者がいません",
-                  claimedAt: null,
-                },
-              });
-              return { kind: "skipped", reason: "no subscribers" };
-            }
-            if (result.delivered === 0) {
-              await tx.reminder.update({
-                where: { id: r.id },
-                data: {
-                  status: willBeFailed ? "FAILED" : "PENDING",
-                  attempts: nextAttempts,
-                  lastError: `all push delivery failed (failed=${result.failed})`,
-                  claimedAt: null,
-                },
-              });
-              return {
-                kind: "failed",
-                error: `all push delivery failed (failed=${result.failed})`,
-              };
-            }
-            await tx.reminder.update({
-              where: { id: r.id },
-              data: {
-                status: "SENT",
-                sentAt: new Date(),
-                lastError:
-                  result.failed > 0
-                    ? `partial: delivered=${result.delivered} failed=${result.failed}`
-                    : null,
-                claimedAt: null,
-              },
-            });
-            return { kind: "sent" };
+          if (result.kind === "failed") {
+            // 外側の catch で attempts++ / FAILED 判定する
+            throw new Error(result.error);
           }
-
-          // 未知 channel(設計上ありえない)。SKIPPED で記録。
           await tx.reminder.update({
             where: { id: r.id },
             data: {
-              status: "SKIPPED",
-              lastError: `unknown channel: ${r.channel}`,
+              status: "SENT",
+              sentAt: new Date(),
+              lastError: result.partialError,
               claimedAt: null,
             },
           });
-          return { kind: "skipped", reason: "unknown channel" };
+          return { kind: "sent" };
         },
         {
           // 外部 HTTP を内包するので tx タイムアウトを 60s に拡大。
@@ -303,25 +256,25 @@ export async function dispatchPendingReminders(): Promise<DispatchSummary> {
   return { sent, failed, skipped, examined: pending.length };
 }
 
-function buildPushPayload(instance: ReminderInstance): {
-  title: string;
-  body: string;
-  url: string;
-  tag: string;
-} {
-  const time = formatInTimeZone(instance.dueAt, APP_TZ, "M月d日 HH:mm");
-  const tag =
-    instance.itemType === "EVENT"
-      ? "予定"
-      : instance.required
-        ? "必須タスク"
-        : "任意タスク";
-  return {
-    title: `${tag}: ${instance.title}`.slice(0, 120),
-    body: `${time}`,
-    url: "/today",
-    tag: `task-${instance.id}`,
-  };
+/**
+ * 締切直前チェックの事前判定。送らない場合はその理由を返す。
+ *   - 締切を過ぎている(Mac のスリープ明け等で遅れて拾った) → 送らない
+ *   - manaba で提出済み → タスクを DONE にして送らない
+ *   - 未提出 / 確認できない → 送る(null)
+ */
+async function precheckManabaDeadline(
+  r: { instance: { id: number; dueAt: Date; status: string; sourceExternalId: string | null } },
+  checkSubmission: (url: string) => Promise<string>,
+): Promise<string | null> {
+  if (r.instance.status !== "OPEN") return "task no longer OPEN";
+  if (r.instance.dueAt.getTime() <= Date.now()) return "締切を過ぎたため送信せず";
+  const url = manabaUrlOf(r.instance.sourceExternalId);
+  if (!url) return null;
+  if ((await checkSubmission(url)) === "submitted") {
+    await markManabaSubmitted(r.instance.id);
+    return "manaba で提出済み";
+  }
+  return null;
 }
 
 type ReminderInstance = {
@@ -333,8 +286,17 @@ type ReminderInstance = {
   priority: "HIGH" | "MID" | "LOW";
 };
 
-function buildSlackMessage(instance: ReminderInstance): { text: string } {
+function buildMessage(instance: ReminderInstance, escalationLevel: number): NotifyMessage {
   const time = formatInTimeZone(instance.dueAt, APP_TZ, "M月d日 HH:mm", { locale: ja });
+  if (escalationLevel === MANABA_DEADLINE_LEVEL) {
+    const left = Math.max(0, Math.round((instance.dueAt.getTime() - Date.now()) / 60_000));
+    return {
+      title: `【未提出】締切まであと ${formatMinutes(left)}: ${instance.title}`.slice(0, 120),
+      body: `締切 ${time}(manaba でまだ提出されていません)`,
+      url: "/today",
+      tag: `task-${instance.id}`,
+    };
+  }
   const tag =
     instance.itemType === "EVENT"
       ? "予定"
@@ -345,11 +307,14 @@ function buildSlackMessage(instance: ReminderInstance): { text: string } {
     instance.itemType === "EVENT"
       ? ""
       : instance.priority === "HIGH"
-        ? "[優先 高]"
-        : instance.priority === "MID"
-          ? ""
-          : "[優先 低]";
+        ? " [優先 高]"
+        : instance.priority === "LOW"
+          ? " [優先 低]"
+          : "";
   return {
-    text: `[${tag}]${priorityLabel ? " " + priorityLabel : ""} ${instance.title}\n${time}`,
+    title: `${tag}${priorityLabel}: ${instance.title}`.slice(0, 120),
+    body: time,
+    url: "/today",
+    tag: `task-${instance.id}`,
   };
 }

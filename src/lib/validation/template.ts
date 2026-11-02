@@ -7,7 +7,7 @@ import {
   MAX_CHECKLIST_ITEMS,
   MAX_REMINDERS,
 } from "@/lib/id";
-import { TaskPriority } from "./enums";
+import { ReminderChannel, TaskPriority } from "./enums";
 
 const ChecklistTemplateInput = z.object({
   label: z.string().min(1).max(120),
@@ -28,7 +28,7 @@ const TemplateFields = z.object({
   reminders: z.array(
     z.object({
       offsetMin: zOffsetMin,
-      channel: z.enum(["SLACK", "PUSH"]),
+      channel: ReminderChannel,
     }),
   ).max(MAX_REMINDERS),
 });

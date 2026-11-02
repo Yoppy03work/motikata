@@ -9,10 +9,11 @@ import { useBoolPref, useThemePref } from "@/lib/useLocalPref";
 import { RepeatIcon } from "@/components/icons";
 import { AcademicImport } from "./AcademicImport";
 import { CitPortalSettings } from "./CitPortalSettings";
+import { DeadlineAlertSettings } from "./DeadlineAlertSettings";
 import { PwaInstallPrompt } from "@/components/PwaInstallPrompt";
 import { GoogleCalendarSettings } from "./GoogleCalendarSettings";
 import { ManabaSettings } from "./ManabaSettings";
-import { PushSettings } from "./PushSettings";
+import { NotifySettings } from "./NotifySettings";
 import { TagSettings } from "./TagSettings";
 
 const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
@@ -125,10 +126,8 @@ export default function SettingsPage() {
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-slate-100 p-4 dark:border-slate-800 dark:bg-slate-900">
-          <h2 className="mb-2 text-sm font-medium text-slate-700 dark:text-slate-300">
-            アプリ通知 (Web Push)
-          </h2>
-          <PushSettings />
+          <h2 className="mb-2 text-sm font-medium text-slate-700 dark:text-slate-300">通知先</h2>
+          <NotifySettings />
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-slate-100 p-4 dark:border-slate-800 dark:bg-slate-900">
@@ -142,16 +141,6 @@ export default function SettingsPage() {
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-slate-100 p-4 dark:border-slate-800 dark:bg-slate-900">
-          <h2 className="mb-2 text-sm font-medium text-slate-700 dark:text-slate-300">
-            Slack 通知
-          </h2>
-          <p className="text-xs text-slate-500">
-            <code>.env</code> の <code>SLACK_WEBHOOK_URL</code> を設定すると、
-            タスクに登録したリマインダー(SLACK チャネル)が毎分の cron で配信されます。
-          </p>
-        </div>
-
-        <div className="rounded-xl border border-slate-200 bg-slate-100 p-4 dark:border-slate-800 dark:bg-slate-900">
           <h2 className="mb-2 text-sm font-medium text-slate-700 dark:text-slate-300">学年歴</h2>
           <AcademicImport />
         </div>
@@ -161,6 +150,7 @@ export default function SettingsPage() {
             manaba 連携
           </h2>
           <ManabaSettings />
+          <DeadlineAlertSettings />
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-slate-100 p-4 dark:border-slate-800 dark:bg-slate-900">
