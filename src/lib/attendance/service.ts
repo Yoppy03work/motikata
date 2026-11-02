@@ -147,12 +147,13 @@ async function claimAttendance(
   if (existing.status === "pending" && fresh) {
     return "in_progress";
   }
-  // failed / 古い pending → 再 claim
-  await prisma.attendanceLog.update({
-    where,
+  // failed / 古い pending → 再 claim。読んだときの状態のままの行だけを書き換える
+  // (失敗後の連打で 2 つのリクエストが同時に再 claim し、二重送信するのを防ぐ)
+  const res = await prisma.attendanceLog.updateMany({
+    where: { classScheduleId, classDate, method, status: existing.status, attemptedAt: existing.attemptedAt },
     data: { status: "pending", attemptedAt: now, errorDetail: null },
   });
-  return "claimed";
+  return res.count > 0 ? "claimed" : "in_progress";
 }
 
 /** 今日(JST) に有効な ClassSchedule 行 (曜日一致 + 有効期間内) を period 昇順で返す。 */
