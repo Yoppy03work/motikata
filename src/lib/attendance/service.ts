@@ -31,6 +31,7 @@ import {
   type AttendanceSettings,
 } from "./settings";
 import { isAutoDryRun } from "./rollout";
+import { getNoQrCourses, noQrRoomId } from "./noQr";
 
 type ClassRow = {
   id: number;
@@ -229,7 +230,8 @@ export type SubmitResult =
  * guard → claim(pending) → adapter.attend → log(success/failed) + audit。
  */
 export async function submitConfirm(
-  input: { classScheduleId: number; classDateYmd: string; roomId: string },
+  // via: "no_qr" は submitNoQr から。roomId はサーバー側で決めたものなので教室照合はしない
+  input: { classScheduleId: number; classDateYmd: string; roomId: string; via?: "qr" | "no_qr" },
   now: Date = new Date(),
 ): Promise<SubmitResult> {
   const cls = await prisma.classSchedule.findUnique({
@@ -255,7 +257,9 @@ export async function submitConfirm(
 
   // 教室が未入力のときは room 一致チェックを緩める (単一ユーザーが物理的に QR をスキャン
   // しているため)。教室が入力済みなら厳密に突合して誤教室スキャンを弾く。
-  const classroomForGuard = cls.classroom?.trim() ? cls.classroom : input.roomId;
+  const classroomForGuard =
+    input.via !== "no_qr" && cls.classroom?.trim() ? cls.classroom : input.roomId;
+  const auditMeta = input.via === "no_qr" ? { via: "no_qr" } : null;
 
   const guard: ConfirmSubmitGuardResult = evaluateConfirmSubmitGuard({
     jobRoomId: input.roomId,
@@ -274,6 +278,7 @@ export async function submitConfirm(
       method: "confirm",
       phase: "blocked",
       reason: guard.reason,
+      metadata: auditMeta,
     });
     return { ok: false, reason: guard.reason, message: guardMessage(guard.reason) };
   }
@@ -296,6 +301,7 @@ export async function submitConfirm(
     classDate: input.classDateYmd,
     method: "confirm",
     phase: "pre_attempt",
+    metadata: auditMeta,
   });
 
   const adapter = new AttendanceHttpAdapter();
@@ -325,12 +331,47 @@ export async function submitConfirm(
     phase: "post_attempt",
     outcome: result.success ? "success" : "failed",
     reason: result.success ? null : result.outcome,
+    metadata: auditMeta,
   });
 
   if (result.success) {
     return { ok: true, message: result.message };
   }
   return { ok: false, reason: result.outcome, message: result.message };
+}
+
+/**
+ * QR なしで送信: 設定で許可した授業だけ、時間割の教室名 (または手入力の教室番号) で送る。
+ * 時間帯・認証情報・二重送信のチェックは confirm と同じ。学外からは出席システムに届かない。
+ */
+export async function submitNoQr(
+  input: { classScheduleId: number; classDateYmd: string },
+  now: Date = new Date(),
+): Promise<SubmitResult> {
+  const cls = await prisma.classSchedule.findUnique({
+    where: { id: input.classScheduleId },
+    select: { courseName: true, classroom: true },
+  });
+  if (!cls) {
+    return { ok: false, reason: "class_not_found", message: "授業が見つかりません" };
+  }
+  const entry = (await getNoQrCourses()).find((c) => c.courseName === cls.courseName);
+  if (!entry) {
+    return {
+      ok: false,
+      reason: "no_qr_not_allowed",
+      message: "この授業は QR なしの送信を許可していません (設定 › 出席 で追加できます)",
+    };
+  }
+  const roomId = noQrRoomId(entry, cls.classroom);
+  if (!roomId) {
+    return {
+      ok: false,
+      reason: "room_unknown",
+      message: "教室番号が分かりません。設定 › 出席 で教室番号を入力してください",
+    };
+  }
+  return submitConfirm({ ...input, roomId, via: "no_qr" }, now);
 }
 
 /** manual: ローカル DB に「出席済み」を記録するだけ (外部送信なし)。 */

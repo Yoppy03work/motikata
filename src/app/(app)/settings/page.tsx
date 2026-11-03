@@ -10,6 +10,7 @@ import { RepeatIcon } from "@/components/icons";
 import { AcademicImport } from "./AcademicImport";
 import { CitPortalSettings } from "./CitPortalSettings";
 import { AttendanceSettings } from "./AttendanceSettings";
+import { AttendanceNoQrSettings } from "./AttendanceNoQrSettings";
 import { DeadlineAlertSettings } from "./DeadlineAlertSettings";
 import { PwaInstallPrompt } from "@/components/PwaInstallPrompt";
 import { GoogleCalendarSettings } from "./GoogleCalendarSettings";
@@ -170,6 +171,7 @@ export default function SettingsPage() {
             出席
           </h2>
           <AttendanceSettings />
+          <AttendanceNoQrSettings />
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-slate-100 p-4 dark:border-slate-800 dark:bg-slate-900">
