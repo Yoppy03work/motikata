@@ -2,6 +2,7 @@
 
 // 今日の出席セクション (today ページに差し込む)。
 // - confirm: 「出席する」→ QR スキャン → /api/attendance/submit で実送信
+// - QR なし: 設定で許可した授業だけ「出席する (QR なし)」→ /api/attendance/submit { noQr: true }
 // - manual : 「自分で出席済みにする」→ /api/attendance/manual (ローカル記録のみ)
 // スタイルは today ページの他カードに合わせた slate/sky Tailwind。
 
@@ -27,6 +28,8 @@ type ClassItem = {
   blockHead: boolean;
   done: boolean;
   inWindow: boolean;
+  noQr: boolean;
+  noQrRoom: string | null;
 };
 
 type TodayResponse = {
@@ -88,14 +91,18 @@ export function TodayAttendance() {
   const onScanResult = async (qr: string) => {
     const c = scanningFor;
     setScanningFor(null);
-    if (!c || !data) return;
+    if (c) await submit(c, { qr });
+  };
+
+  const submit = async (c: ClassItem, extra: { qr: string } | { noQr: true }) => {
+    if (!data) return;
     setPendingId(c.id);
     setMessage(null);
     try {
       const res = await fetch("/api/attendance/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ classScheduleId: c.id, classDateYmd: data.date, qr }),
+        body: JSON.stringify({ classScheduleId: c.id, classDateYmd: data.date, ...extra }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -173,14 +180,29 @@ export function TodayAttendance() {
 
             {!c.done && (
               <div className="mt-2.5 flex gap-2">
-                <button
-                  type="button"
-                  disabled={pendingId === c.id || !data.hasCreds}
-                  onClick={() => setScanningFor(c)}
-                  className="flex-1 rounded-lg bg-sky-500 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-                >
-                  {pendingId === c.id ? "送信中…" : "出席する (QR)"}
-                </button>
+                {c.noQr ? (
+                  <button
+                    type="button"
+                    disabled={pendingId === c.id || !data.hasCreds || !c.noQrRoom}
+                    onClick={() => void submit(c, { noQr: true })}
+                    className="flex-1 rounded-lg bg-sky-500 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                  >
+                    {pendingId === c.id
+                      ? "送信中…"
+                      : c.noQrRoom
+                        ? `出席する (QR なし・${c.noQrRoom})`
+                        : "教室番号不明 (設定で入力)"}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={pendingId === c.id || !data.hasCreds}
+                    onClick={() => setScanningFor(c)}
+                    className="flex-1 rounded-lg bg-sky-500 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                  >
+                    {pendingId === c.id ? "送信中…" : "出席する (QR)"}
+                  </button>
+                )}
                 <button
                   type="button"
                   disabled={pendingId === c.id}
