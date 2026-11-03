@@ -8,7 +8,7 @@ import {
   hasCitCredentials,
 } from "@/lib/attendance/service";
 import { blockRowIds } from "@/lib/attendance/blocks";
-import { getNoQrCourses, noQrRoomId } from "@/lib/attendance/noQr";
+import { getNoQrSettings, noQrRoomId } from "@/lib/attendance/noQr";
 import { getJstParts, hhmmToMinutes, isInConfirmWindow } from "@/lib/attendance/time";
 
 export const runtime = "nodejs";
@@ -20,11 +20,11 @@ export async function GET() {
 
   const now = new Date();
   const jst = getJstParts(now);
-  const [classes, mode, hasCreds, noQrCourses] = await Promise.all([
+  const [classes, mode, hasCreds, noQr] = await Promise.all([
     getTodayClasses(now),
     getAttendanceMode(),
     hasCitCredentials(),
-    getNoQrCourses(),
+    getNoQrSettings(),
   ]);
 
   const rows = classes.map((c) => ({ id: c.id, courseName: c.courseName, period: c.period }));
@@ -46,7 +46,6 @@ export async function GET() {
     const startMinutes = hhmmToMinutes(c.startTime);
     const inWindow =
       startMinutes !== null && isInConfirmWindow(now, c.dayOfWeek, startMinutes);
-    const noQr = noQrCourses.find((n) => n.courseName === c.courseName);
     return {
       id: c.id,
       period: c.period,
@@ -58,9 +57,9 @@ export async function GET() {
       blockHead: block[0] === c.id,
       done: blockDone,
       inWindow,
-      // QR なし送信を許可した授業か。許可していても教室番号が分からなければ noQrRoom は null
-      noQr: !!noQr,
-      noQrRoom: noQr ? noQrRoomId(noQr, c.classroom) : null,
+      // QR なし送信がオンか。オンでも教室番号が分からなければ noQrRoom は null
+      noQr: noQr.all,
+      noQrRoom: noQr.all ? noQrRoomId(noQr, c.classroom) : null,
     };
   });
 
