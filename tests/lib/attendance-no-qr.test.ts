@@ -10,11 +10,13 @@ describe("deriveRoomId", () => {
   it("作った番号は時間割の教室と一致判定される", () => {
     expect(attendanceRoomMatches("７３１講義室", deriveRoomId("７３１講義室"))).toBe(true);
   });
-  it("4 桁の数字はそのまま", () => {
+  it("7 号館以外の津田沼 (3 桁) と新習志野 (4 桁) は教室番号そのまま", () => {
+    expect(deriveRoomId("６１４講義室")).toBe("614");
+    expect(deriveRoomId("６１２講義室")).toBe("612");
     expect(deriveRoomId("１２３４講義室")).toBe("1234");
+    expect(attendanceRoomMatches("６１４講義室", "614")).toBe(true);
   });
-  it("規則が分からない教室は作らない", () => {
-    expect(deriveRoomId("６１４講義室")).toBeNull();
+  it("数字でない教室は作らない", () => {
     expect(deriveRoomId("鎌倉研")).toBeNull();
     expect(deriveRoomId(null)).toBeNull();
     expect(deriveRoomId("")).toBeNull();
@@ -28,6 +30,7 @@ describe("noQrRoomId", () => {
   });
   it("手入力が無ければ教室名から作る", () => {
     expect(noQrRoomId(base, "７３１講義室")).toBe("7301");
-    expect(noQrRoomId(base, "６１４講義室")).toBeNull();
+    expect(noQrRoomId(base, "６１４講義室")).toBe("614");
+    expect(noQrRoomId(base, "鎌倉研")).toBeNull();
   });
 });
