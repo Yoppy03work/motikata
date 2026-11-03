@@ -1,14 +1,12 @@
 "use client";
 
-// 「QR なしで送信」を許可する授業の設定。
-// 出席 QR は教室にいることの確認なので、先生から QR なしでよいと許可を得た授業だけ追加する。
-// 追加するときは許可の出どころのメモを必須にして、あとから見返せるようにする。
+// 「QR なしで送信」する授業の設定。授業ごとに追加・解除し、必要なら教室番号を手で入れる。
 
 import { useEffect, useState } from "react";
 import { fetchJsonOrNull } from "@/lib/fetchJson";
 
 type Course = { courseName: string; classroom: string | null; derivedRoomId: string | null };
-type Enabled = { courseName: string; note: string; roomId?: string; enabledAt: string };
+type Enabled = { courseName: string; note?: string; roomId?: string; enabledAt: string };
 type Response = { courses: Course[]; enabled: Enabled[] };
 
 const inputClass =
@@ -17,7 +15,6 @@ const inputClass =
 export function AttendanceNoQrSettings() {
   const [data, setData] = useState<Response | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
-  const [note, setNote] = useState("");
   const [roomId, setRoomId] = useState("");
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
@@ -60,14 +57,14 @@ export function AttendanceNoQrSettings() {
   const startEdit = (c: Course) => {
     const e = data?.enabled.find((x) => x.courseName === c.courseName);
     setEditing(c.courseName);
-    setNote(e?.note ?? "");
     setRoomId(e?.roomId ?? "");
     setMessage(null);
   };
 
   const submitEdit = async () => {
     if (!editing) return;
-    const entry = { courseName: editing, note: note.trim(), roomId: roomId.trim() || undefined };
+    const prev = data?.enabled.find((x) => x.courseName === editing);
+    const entry = { courseName: editing, note: prev?.note, roomId: roomId.trim() || undefined };
     const rest = current().filter((x) => x.courseName !== editing);
     if (await save([...rest, entry])) setEditing(null);
   };
@@ -80,7 +77,7 @@ export function AttendanceNoQrSettings() {
     <div className="mt-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-3 text-xs">
       <p className="text-sm font-medium text-slate-800 dark:text-slate-200">QR なしで送信する授業</p>
       <p className="mt-0.5 text-slate-500">
-        先生から「QR なしでよい」と許可をもらった授業だけ追加してください。追加した授業は「今日」画面のボタン 1 つで、時間割の教室で出席を送ります (授業の時間内・学内ネットワークのときだけ)。
+        追加した授業は「今日」画面のボタン 1 つ (自動出席なら自動) で、時間割の教室で出席を送ります (授業の時間内・学内ネットワークのときだけ)。
       </p>
 
       {data === null ? (
@@ -102,11 +99,6 @@ export function AttendanceNoQrSettings() {
                       <span className="mx-1">→</span>
                       {room ? `教室番号 ${room}` : "教室番号不明"}
                     </p>
-                    {e && (
-                      <p className="mt-0.5 text-emerald-600 dark:text-emerald-400">
-                        許可: {e.note}
-                      </p>
-                    )}
                   </div>
                   {editing !== c.courseName && (
                     <div className="flex shrink-0 gap-1.5">
@@ -134,14 +126,6 @@ export function AttendanceNoQrSettings() {
 
                 {editing === c.courseName && (
                   <div className="mt-2 space-y-1.5">
-                    <input
-                      value={note}
-                      onChange={(ev) => setNote(ev.target.value)}
-                      placeholder="許可の出どころ (例: 11/3 授業後に先生に確認)"
-                      maxLength={200}
-                      disabled={pending}
-                      className={`${inputClass} w-full`}
-                    />
                     <div className="flex items-center gap-1.5">
                       <input
                         value={roomId}
@@ -154,7 +138,7 @@ export function AttendanceNoQrSettings() {
                       <button
                         type="button"
                         onClick={() => void submitEdit()}
-                        disabled={pending || note.trim().length === 0 || (!roomId.trim() && !c.derivedRoomId)}
+                        disabled={pending || (!roomId.trim() && !c.derivedRoomId)}
                         className="rounded-md bg-sky-500 px-3 py-1.5 font-medium text-white disabled:opacity-50"
                       >
                         保存
