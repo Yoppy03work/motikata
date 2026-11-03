@@ -5,10 +5,11 @@
  * QR なしでよいと許可を得た授業だけ、利用者が設定で 1 つずつ登録し、許可の出どころを
  * メモとして残す。登録した授業は、時間割の教室名から出席システムの教室番号を作って送る。
  *
- * 教室番号は確信のある規則だけで作る (room-normalize と同じ方針):
- *   - 津田沼 "7XY" (例 ７３１講義室) → "7X0Y" (7301)。実機 QR で確認済みの規則
- *   - 4 桁の数字はそのまま
- *   - それ以外 (6XX、研究室名など) は作らない。利用者が設定で教室番号を直接入れる
+ * 教室番号の規則 (利用者に確認済み 2026-11-03):
+ *   - 津田沼 7 号館 "7XY" (例 ７３１講義室) → "7X0Y" (7301)。7 号館だけ命名が違う (実機 QR で確認済み)
+ *   - 津田沼のほかの号館 (3 桁) → 教室番号そのまま (例 ６１４講義室 → 614)
+ *   - 新習志野 (4 桁) → 教室番号そのまま
+ *   - 数字でない教室 (研究室名など) は作らない。利用者が設定で教室番号を直接入れる
  */
 import { z } from "zod";
 import { prisma } from "@/lib/db";
@@ -36,7 +37,7 @@ export function deriveRoomId(classroom: string | null | undefined): string | nul
   const core = normalizeRoom(classroom).core;
   if (!core) return null;
   if (/^7\d\d$/.test(core)) return `${core.slice(0, 2)}0${core[2]}`;
-  if (/^\d{4}$/.test(core)) return core;
+  if (/^\d{3,4}$/.test(core)) return core;
   return null;
 }
 

@@ -146,7 +146,7 @@ export function AttendanceNoQrSettings() {
                       <input
                         value={roomId}
                         onChange={(ev) => setRoomId(ev.target.value)}
-                        placeholder={c.derivedRoomId ? `教室番号 (空なら ${c.derivedRoomId})` : "教室番号 (例 6104)"}
+                        placeholder={c.derivedRoomId ? `教室番号 (空なら ${c.derivedRoomId})` : "教室番号 (例 614)"}
                         maxLength={32}
                         disabled={pending}
                         className={`${inputClass} flex-1`}
