@@ -31,7 +31,7 @@ import {
   type AttendanceSettings,
 } from "./settings";
 import { isAutoDryRun } from "./rollout";
-import { getNoQrCourses, noQrRoomId } from "./noQr";
+import { getNoQrSettings, noQrRoomId } from "./noQr";
 
 type ClassRow = {
   id: number;
@@ -341,7 +341,7 @@ export async function submitConfirm(
 }
 
 /**
- * QR なしで送信: 設定で許可した授業だけ、時間割の教室名 (または手入力の教室番号) で送る。
+ * QR なしで送信: 設定で「QR なし」をオンにしているとき、時間割の教室名 (または教室ごとの手入力) で送る。
  * 時間帯・認証情報・二重送信のチェックは confirm と同じ。学外からは出席システムに届かない。
  */
 export async function submitNoQr(
@@ -350,20 +350,20 @@ export async function submitNoQr(
 ): Promise<SubmitResult> {
   const cls = await prisma.classSchedule.findUnique({
     where: { id: input.classScheduleId },
-    select: { courseName: true, classroom: true },
+    select: { classroom: true },
   });
   if (!cls) {
     return { ok: false, reason: "class_not_found", message: "授業が見つかりません" };
   }
-  const entry = (await getNoQrCourses()).find((c) => c.courseName === cls.courseName);
-  if (!entry) {
+  const noQr = await getNoQrSettings();
+  if (!noQr.all) {
     return {
       ok: false,
       reason: "no_qr_not_allowed",
-      message: "この授業は QR なしの送信を許可していません (設定 › 出席 で追加できます)",
+      message: "QR なしの送信はオフです (設定 › 出席 でオンにできます)",
     };
   }
-  const roomId = noQrRoomId(entry, cls.classroom);
+  const roomId = noQrRoomId(noQr, cls.classroom);
   if (!roomId) {
     return {
       ok: false,
@@ -440,7 +440,7 @@ export async function runAutoTick(now: Date = new Date()): Promise<{
   }
   const today = await getTodayClasses(now);
   const jst = getJstParts(now);
-  const noQrCourses = await getNoQrCourses();
+  const noQr = await getNoQrSettings();
 
   let examined = 0;
   let attempted = 0;
@@ -454,10 +454,9 @@ export async function runAutoTick(now: Date = new Date()): Promise<{
     examined++;
 
     const classDateYmd = jst.ymd;
-    // QR なしを許可した授業は、QR セッションの代わりに設定の教室番号を使う
+    // QR なしがオンなら、QR セッションの代わりに教室名から作った教室番号を使う
     // (教室番号はサーバー側で決めたものなので、confirm の QR なしと同じく教室照合はその番号で行う)
-    const noQr = noQrCourses.find((n) => n.courseName === cls.courseName);
-    const noQrRoom = noQr ? noQrRoomId(noQr, cls.classroom) : null;
+    const noQrRoom = noQr.all ? noQrRoomId(noQr, cls.classroom) : null;
     const session = noQrRoom
       ? null
       : await prisma.attendanceQrSession.findFirst({
