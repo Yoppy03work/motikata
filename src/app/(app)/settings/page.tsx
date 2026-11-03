@@ -17,7 +17,6 @@ import { GoogleCalendarSettings } from "./GoogleCalendarSettings";
 import { ManabaSettings } from "./ManabaSettings";
 import { DigestSettings } from "./DigestSettings";
 import { NotifySettings } from "./NotifySettings";
-import { WatchdogSettings } from "./WatchdogSettings";
 import { TagSettings } from "./TagSettings";
 
 const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
@@ -133,7 +132,6 @@ export default function SettingsPage() {
           <h2 className="mb-2 text-sm font-medium text-slate-700 dark:text-slate-300">通知先</h2>
           <NotifySettings />
           <DigestSettings />
-          <WatchdogSettings />
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-slate-100 p-4 dark:border-slate-800 dark:bg-slate-900">
