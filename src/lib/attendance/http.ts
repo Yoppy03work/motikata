@@ -84,6 +84,17 @@ function extractCsrf(html: string, formActionContains?: string): string | null {
   return $('input[name="_csrf"]').first().attr("value") ?? null;
 }
 
+/**
+ * 出席システムのユーザ ID。
+ * WHY: CIT ポータルは学籍番号の大文字・小文字を区別しないが、出席システムは区別し、
+ * 先頭の英字を大文字で入れないと「ユーザIDまたはパスワードが違います」になる (2026-11-03 実機)。
+ * 保存している学籍番号はポータル用の表記 (先頭が小文字) なので、出席のときだけ先頭を大文字にする。
+ */
+export function attendanceUserId(username: string): string {
+  const u = username.trim();
+  return u.charAt(0).toUpperCase() + u.slice(1);
+}
+
 export class AttendanceHttpAdapter {
   /** ログイン → class_room → attend のフルフローで出席する。 */
   async attend(
@@ -92,7 +103,7 @@ export class AttendanceHttpAdapter {
     roomId: string,
   ): Promise<AttendanceResult> {
     try {
-      const cookies = await this.login(username, password);
+      const cookies = await this.login(attendanceUserId(username), password);
       if (!cookies) {
         return { success: false, outcome: "login-failed", message: "ログインに失敗しました" };
       }
