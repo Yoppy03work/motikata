@@ -1,7 +1,8 @@
 "use client";
 
 // 「QR なしで送信」の設定。スイッチ 1 つで時間割のすべての授業に効く (授業ごとの登録はしない)。
-// 教室番号を作れない教室 (研究室名など) だけ、教室ごとに番号を手で入れる。
+// 教室番号を作れない教室 (研究室名など) だけ一覧に出し、教室ごとに番号を手で入れる。
+// 教室名から作れる教室 (731 → 7301 など) は表示しない。
 
 import { useEffect, useState } from "react";
 import { fetchJsonOrNull } from "@/lib/fetchJson";
@@ -60,6 +61,11 @@ export function AttendanceNoQrSettings() {
     if (await save({ all: data.all, rooms })) setEditing(null);
   };
 
+  // 教室名から番号を作れない教室と、手入力した教室だけ出す
+  const needsInput = (data?.classrooms ?? []).filter(
+    (c) => !c.derivedRoomId || data?.rooms[c.classroom] !== undefined,
+  );
+
   return (
     <div className="mt-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-3 text-xs">
       {data === null ? (
@@ -84,9 +90,9 @@ export function AttendanceNoQrSettings() {
             </span>
           </label>
 
-          {data.all && data.classrooms.length > 0 && (
+          {data.all && needsInput.length > 0 && (
             <ul className="mt-2 divide-y divide-slate-100 dark:divide-slate-800">
-              {data.classrooms.map((c) => {
+              {needsInput.map((c) => {
                 const manual = data.rooms[c.classroom];
                 const room = manual ?? c.derivedRoomId;
                 return (
@@ -95,13 +101,11 @@ export function AttendanceNoQrSettings() {
                       <div className="min-w-0">
                         <p className="text-sm text-slate-800 dark:text-slate-200">
                           {c.classroom}
-                          <span className="mx-1 text-slate-400">→</span>
                           {room ? (
-                            <span className="font-medium">{room}</span>
+                            <span className="ml-1.5 text-slate-500">教室番号 {room}</span>
                           ) : (
-                            <span className="text-amber-600 dark:text-amber-400">教室番号不明</span>
+                            <span className="ml-1.5 text-amber-600 dark:text-amber-400">教室番号を入力してください</span>
                           )}
-                          {manual ? <span className="ml-1 text-slate-400">(手入力)</span> : null}
                         </p>
                         <p className="mt-0.5 truncate text-slate-500">{c.courses.join(" / ")}</p>
                       </div>
