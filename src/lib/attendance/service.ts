@@ -440,6 +440,7 @@ export async function runAutoTick(now: Date = new Date()): Promise<{
   }
   const today = await getTodayClasses(now);
   const jst = getJstParts(now);
+  const noQrCourses = await getNoQrCourses();
 
   let examined = 0;
   let attempted = 0;
@@ -453,10 +454,19 @@ export async function runAutoTick(now: Date = new Date()): Promise<{
     examined++;
 
     const classDateYmd = jst.ymd;
-    const session = await prisma.attendanceQrSession.findFirst({
-      where: { classScheduleId: cls.id, classDate: classDateYmd, expiresAt: { gt: now } },
-      select: { roomId: true },
-    });
+    // QR なしを許可した授業は、QR セッションの代わりに設定の教室番号を使う
+    // (教室番号はサーバー側で決めたものなので、confirm の QR なしと同じく教室照合はその番号で行う)
+    const noQr = noQrCourses.find((n) => n.courseName === cls.courseName);
+    const noQrRoom = noQr ? noQrRoomId(noQr, cls.classroom) : null;
+    const session = noQrRoom
+      ? null
+      : await prisma.attendanceQrSession.findFirst({
+          where: { classScheduleId: cls.id, classDate: classDateYmd, expiresAt: { gt: now } },
+          select: { roomId: true },
+        });
+    const jobRoomId = noQrRoom ?? session?.roomId ?? "";
+    const guardClassroom = noQrRoom ?? cls.classroom;
+    const auditMeta = noQrRoom ? { via: "no_qr" } : null;
     const blockIds = blockRowIds(
       today.map((c) => ({ id: c.id, courseName: c.courseName, period: c.period })),
       cls.id,
@@ -467,13 +477,13 @@ export async function runAutoTick(now: Date = new Date()): Promise<{
       autoExecutionEnabled: autoEnabled,
       method: "auto",
       storedMode: mode,
-      classroom: cls.classroom,
-      jobRoomId: session?.roomId ?? "",
+      classroom: guardClassroom,
+      jobRoomId,
       classDayOfWeek: cls.dayOfWeek,
       classStartMinutes: startMinutes,
       now,
       alreadySubmitted: already,
-      qrSessionValid: session !== null,
+      qrSessionValid: session !== null || noQrRoom !== null,
     });
 
     if (!pre.allowed) {
@@ -510,8 +520,8 @@ export async function runAutoTick(now: Date = new Date()): Promise<{
       autoExecutionEnabled: autoEnabled,
       method: "auto",
       storedMode: mode,
-      classroom: cls.classroom,
-      jobRoomId: session!.roomId,
+      classroom: guardClassroom,
+      jobRoomId,
       classDayOfWeek: cls.dayOfWeek,
       classStartMinutes: startMinutes,
       now,
@@ -543,6 +553,7 @@ export async function runAutoTick(now: Date = new Date()): Promise<{
         outcome: "success",
         reason: "dry-run (no external send)",
         jobId: `auto-${cls.id}-${classDateYmd}`,
+        metadata: auditMeta,
       });
       continue;
     }
@@ -559,8 +570,9 @@ export async function runAutoTick(now: Date = new Date()): Promise<{
       method: "auto",
       phase: "pre_attempt",
       jobId: `auto-${cls.id}-${classDateYmd}`,
+      metadata: auditMeta,
     });
-    const result = await adapter.attend(creds.username, creds.password, session!.roomId);
+    const result = await adapter.attend(creds.username, creds.password, jobRoomId);
     attempted++;
     await prisma.attendanceLog.update({
       where: {
@@ -583,6 +595,7 @@ export async function runAutoTick(now: Date = new Date()): Promise<{
       outcome: result.success ? "success" : "failed",
       reason: result.success ? null : result.outcome,
       jobId: `auto-${cls.id}-${classDateYmd}`,
+      metadata: auditMeta,
     });
   }
 
